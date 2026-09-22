@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
 
+  // Chat state
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -29,10 +30,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
+  // Broadcast state
+  const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
+
+  // Settings toggles
   const [setTimeZone, setSetTimeZone] = useState(true);
   const [kidsMode, setKidsMode] = useState(false);
   const [nsfwMode, setNsfwMode] = useState(false);
 
+  // Detect country for currency
   useEffect(() => {
     const detectCountry = async () => {
       try {
@@ -44,24 +50,58 @@ export default function Dashboard() {
     detectCountry();
   }, []);
 
+  // Init: fetch user, chats, broadcast, track visitor
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+
       if (user) {
         setReportEmail(user.email || "");
         setReportName(user.email?.split("@")[0] || "");
-        const { data } = await supabase
+
+        // Fetch chats
+        const { data: chatsData } = await supabase
           .from("chats")
           .select("*")
           .eq("user_id", user.id)
           .order("pinned", { ascending: false })
           .order("created_at", { ascending: false });
-        if (data) {
-          setChats(data);
-          if (data.length > 0) setActiveChatId(data[0].id);
+
+        if (chatsData) {
+          setChats(chatsData);
+          if (chatsData.length > 0) setActiveChatId(chatsData[0].id);
         }
       }
+
+      // Fetch active broadcast (any user can see)
+      try {
+        const { data: bc } = await supabase
+          .from("broadcasts")
+          .select("*")
+          .eq("active", true)
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (bc && bc[0]) setActiveBroadcast(bc[0]);
+      } catch (e) {}
+
+      // Track visitor (silent, non-blocking)
+      try {
+        const geoRes = await fetch("https://ipapi.co/json/");
+        const geo = await geoRes.json();
+        const ipHash = btoa(geo.ip || "unknown").substring(0, 16);
+        await supabase.from("visitors").insert([
+          {
+            ip_hash: ipHash,
+            country: geo.country_name || "Unknown",
+            city: geo.city || "Unknown",
+            user_agent: navigator.userAgent,
+            path: window.location.pathname,
+            user_id: user?.id || null,
+          },
+        ]);
+      } catch (e) {}
     };
     init();
   }, []);
@@ -83,11 +123,27 @@ export default function Dashboard() {
 
   const sendMessage = async () => {
     if (!input.trim()) return;
+
+    // Auto-create a chat if none exists
     if (!activeChatId) {
-      // Create a chat first if none exists
-      await createNewChat();
+      if (!user) return;
+      const { data } = await supabase
+        .from("chats")
+        .insert([{ user_id: user.id, title: "New Conversation" }])
+        .select()
+        .single();
+      if (data) {
+        setChats([data, ...chats]);
+        setActiveChatId(data.id);
+        await runSend(data.id);
+      }
       return;
     }
+
+    await runSend(activeChatId);
+  };
+
+  const runSend = async (chatId: string) => {
     const userMessage = { role: "user", content: input };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -97,15 +153,9 @@ export default function Dashboard() {
 
     if (messages.length === 0) {
       const newTitle =
-        currentInput.substring(0, 25) +
-        (currentInput.length > 25 ? "..." : "");
-      await supabase
-        .from("chats")
-        .update({ title: newTitle })
-        .eq("id", activeChatId);
-      setChats(
-        chats.map((c) => (c.id === activeChatId ? { ...c, title: newTitle } : c))
-      );
+        currentInput.substring(0, 25) + (currentInput.length > 25 ? "..." : "");
+      await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
+      setChats(chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
     }
 
     try {
@@ -253,6 +303,35 @@ export default function Dashboard() {
 
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
+      {/* 📢 LIVE BROADCAST BANNER */}
+      {activeBroadcast && (
+        <div
+          className={`absolute top-4 left-1/2 -translate-x-1/2 z-[90] max-w-md w-[calc(100%-2rem)] rounded-2xl border p-4 shadow-2xl ${
+            activeBroadcast.type === "alert"
+              ? "bg-red-950/95 border-red-500/50"
+              : activeBroadcast.type === "warning"
+              ? "bg-yellow-950/95 border-yellow-500/50"
+              : activeBroadcast.type === "success"
+              ? "bg-green-950/95 border-green-500/50"
+              : "bg-blue-950/95 border-blue-500/50"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-xl">📢</span>
+            <div className="flex-1">
+              <p className="font-semibold text-sm">{activeBroadcast.title}</p>
+              <p className="text-xs text-zinc-300 mt-1">{activeBroadcast.message}</p>
+            </div>
+            <button
+              onClick={() => setActiveBroadcast(null)}
+              className="text-zinc-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* TOS MODAL */}
       {showToS && (
         <div className="absolute inset-0 bg-black/90 z-[80] flex items-center justify-center p-6 backdrop-blur-sm">
@@ -292,7 +371,6 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {/* REPORT A PROBLEM FORM */}
             {settingsSubPage === "Report a Problem" ? (
               reportSubmitted ? (
                 <div className="text-center py-16">
