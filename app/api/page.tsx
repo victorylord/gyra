@@ -92,9 +92,12 @@ export default function ApiPage() {
             >
               Get your API key
             </button>
-            <button className="bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full font-medium hover:bg-zinc-800 transition-colors">
+            <a
+              href="/docs"
+              className="bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full font-medium hover:bg-zinc-800 transition-colors inline-block"
+            >
               Read the docs
-            </button>
+            </a>
           </div>
           <div className="flex flex-col gap-2 mt-8 text-sm text-zinc-400">
             <p>✓ Works with your existing SDK</p>
