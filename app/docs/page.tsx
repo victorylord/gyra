@@ -319,7 +319,7 @@ console.log(response.message);`}
                 Be the first to know about the latest updates. Join the
                 discussion at{" "}
                 <a href="#" className="text-blue-400 hover:underline">
-                  t.me/gyraai
+                  https://t.me/GenviaNews
                 </a>
               </p>
             </div>
