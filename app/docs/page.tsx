@@ -319,7 +319,7 @@ console.log(response.message);`}
                 Be the first to know about the latest updates. Join the
                 discussion at{" "}
                 <a href="#" className="text-blue-400 hover:underline">
-                  community.gyra.ng
+                  t.me/gyraai
                 </a>
               </p>
             </div>
@@ -425,7 +425,7 @@ console.log(response.message);`}
           href="/dashboard"
           className="text-sm text-zinc-400 hover:text-white transition-colors"
         >
-          ← Back to Gyra
+          ← Back to Gyra Home
         </a>
       </div>
 

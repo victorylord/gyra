@@ -14,6 +14,14 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsSubPage, setSettingsSubPage] = useState<string | null>(null);
 
+  // Report form state
+  const [reportName, setReportName] = useState("");
+  const [reportEmail, setReportEmail] = useState("");
+  const [reportTitle, setReportTitle] = useState("");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -41,6 +49,8 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
       if (user) {
+        setReportEmail(user.email || "");
+        setReportName(user.email?.split("@")[0] || "");
         const { data } = await supabase
           .from("chats")
           .select("*")
@@ -72,7 +82,12 @@ export default function Dashboard() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !activeChatId) return;
+    if (!input.trim()) return;
+    if (!activeChatId) {
+      // Create a chat first if none exists
+      await createNewChat();
+      return;
+    }
     const userMessage = { role: "user", content: input };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -102,6 +117,11 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.message) {
         setMessages([...updatedMessages, { role: "assistant", content: data.message }]);
+      } else {
+        setMessages([
+          ...updatedMessages,
+          { role: "assistant", content: "Sorry, I ran into an error. Please try again." },
+        ]);
       }
     } catch (err) {
       console.error(err);
@@ -165,6 +185,35 @@ export default function Dashboard() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
+  const submitReport = async () => {
+    if (!reportName.trim() || !reportEmail.trim() || !reportTitle.trim() || !reportDescription.trim()) {
+      alert("Please fill in all fields.");
+      return;
+    }
+    setReportSubmitting(true);
+    const { error } = await supabase.from("reports").insert([
+      {
+        user_id: user?.id || null,
+        name: reportName,
+        email: reportEmail,
+        title: reportTitle,
+        description: reportDescription,
+      },
+    ]);
+    setReportSubmitting(false);
+    if (error) {
+      alert("Failed to submit report. Please try again.");
+    } else {
+      setReportSubmitted(true);
+      setTimeout(() => {
+        setReportSubmitted(false);
+        setSettingsSubPage(null);
+        setReportTitle("");
+        setReportDescription("");
+      }, 2500);
+    }
+  };
+
   const getPricing = () => {
     const baseNaira = 10000;
     const prices: { [key: string]: { symbol: string; price: number } } = {
@@ -188,10 +237,10 @@ export default function Dashboard() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const settingsButton = (label: string, icon: string, sub?: string, onClick?: () => void) => (
+  const settingsButton = (label: string, icon: string, sub?: string) => (
     <button
       key={label}
-      onClick={onClick || (() => setSettingsSubPage(label))}
+      onClick={() => setSettingsSubPage(label)}
       className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-left"
     >
       <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">{icon}</span>
@@ -227,19 +276,13 @@ export default function Dashboard() {
         <div className="absolute inset-0 bg-black z-[70] flex flex-col overflow-hidden">
           <div className="flex items-center gap-4 p-4 border-b border-zinc-800/50">
             {settingsSubPage ? (
-              <button
-                onClick={() => setSettingsSubPage(null)}
-                className="text-zinc-400 hover:text-white"
-              >
+              <button onClick={() => setSettingsSubPage(null)} className="text-zinc-400 hover:text-white">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
             ) : (
-              <button
-                onClick={() => setShowSettings(false)}
-                className="text-zinc-400 hover:text-white"
-              >
+              <button onClick={() => setShowSettings(false)} className="text-zinc-400 hover:text-white">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -249,36 +292,88 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {settingsSubPage ? (
+            {/* REPORT A PROBLEM FORM */}
+            {settingsSubPage === "Report a Problem" ? (
+              reportSubmitted ? (
+                <div className="text-center py-16">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="font-semibold mb-2">Report submitted!</p>
+                  <p className="text-sm text-zinc-500">Thank you for helping us improve Gyra.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Your Name</label>
+                    <input
+                      type="text"
+                      value={reportName}
+                      onChange={(e) => setReportName(e.target.value)}
+                      placeholder="Oluwafemi Martin"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Your Email</label>
+                    <input
+                      type="email"
+                      value={reportEmail}
+                      onChange={(e) => setReportEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Title</label>
+                    <input
+                      type="text"
+                      value={reportTitle}
+                      onChange={(e) => setReportTitle(e.target.value)}
+                      placeholder="Brief summary of the issue"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Write your problem here</label>
+                    <textarea
+                      value={reportDescription}
+                      onChange={(e) => setReportDescription(e.target.value)}
+                      placeholder="Describe what went wrong in detail..."
+                      rows={6}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
+                    />
+                  </div>
+                  <button
+                    onClick={submitReport}
+                    disabled={reportSubmitting}
+                    className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50 mt-2"
+                  >
+                    {reportSubmitting ? "Submitting..." : "Submit Report"}
+                  </button>
+                </div>
+              )
+            ) : settingsSubPage ? (
               <div className="text-zinc-300">
-                <p className="text-sm mb-4">
-                  {settingsSubPage} settings will be available soon.
-                </p>
-                <p className="text-xs text-zinc-500">
-                  We are building the full functionality. Check back later.
-                </p>
+                <p className="text-sm mb-4">{settingsSubPage} settings will be available soon.</p>
+                <p className="text-xs text-zinc-500">We are building the full functionality. Check back later.</p>
               </div>
             ) : (
               <>
-                {/* User Profile Card */}
                 <div className="flex items-center gap-4 p-4 bg-zinc-900 rounded-2xl mb-4">
                   <div className="w-14 h-14 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center text-xl font-bold">
                     {user ? user.email[0].toUpperCase() : "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold truncate">
-                      {user ? user.email.split("@")[0] : "Loading..."}
-                    </p>
+                    <p className="font-semibold truncate">{user ? user.email.split("@")[0] : "Loading..."}</p>
                     <p className="text-sm text-zinc-500 truncate">{user?.email}</p>
                   </div>
                 </div>
 
-                {/* SuperGyra */}
                 <button
-                  onClick={() => {
-                    setShowSettings(false);
-                    setShowUpgrade(true);
-                  }}
+                  onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
                   className="w-full flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 rounded-2xl p-4 mb-6"
                 >
                   <Image src="/logo.jpeg" alt="Gyra" width={32} height={32} className="rounded-full" />
@@ -286,9 +381,7 @@ export default function Dashboard() {
                     <p className="font-semibold text-sm">SuperGyra</p>
                     <p className="text-xs text-zinc-500">Premium Ask, Voice, Imagine...</p>
                   </div>
-                  <span className="bg-blue-600 text-white px-4 py-1.5 rounded-full text-xs font-bold">
-                    Upgrade
-                  </span>
+                  <span className="bg-blue-600 text-white px-4 py-1.5 rounded-full text-xs font-bold">Upgrade</span>
                 </button>
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">App</p>
@@ -372,9 +465,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium">Sign out</p>
                 </button>
 
-                <p className="text-center text-xs text-zinc-600 mt-6 mb-4">
-                  1.0.0-release.00
-                </p>
+                <p className="text-center text-xs text-zinc-600 mt-6 mb-4">1.0.0-release.00</p>
               </>
             )}
           </div>
@@ -391,29 +482,18 @@ export default function Dashboard() {
               </svg>
             </button>
           </div>
-
           <div className="flex-1 overflow-y-auto px-6 pb-6">
-            <h2 className="text-2xl font-bold text-center mb-2">
-              Keep chatting with basic access
-            </h2>
+            <h2 className="text-2xl font-bold text-center mb-2">Keep chatting with basic access</h2>
             <p className="text-zinc-400 text-center text-sm mb-6">Choose the right plan for you</p>
-
             <div className="flex items-center gap-2 bg-zinc-900 rounded-full p-1 mb-6 overflow-x-auto">
               {["Lite", "SuperGyra", "Plus", "Heavy"].map((tier, i) => (
-                <button
-                  key={tier}
-                  className={`flex-1 py-2 px-4 rounded-full text-sm font-medium whitespace-nowrap ${i === 0 ? "bg-zinc-800 text-white" : "text-zinc-500"}`}
-                >
+                <button key={tier} className={`flex-1 py-2 px-4 rounded-full text-sm font-medium whitespace-nowrap ${i === 0 ? "bg-zinc-800 text-white" : "text-zinc-500"}`}>
                   {tier}
                 </button>
               ))}
             </div>
-
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
-              <h3 className="text-xl font-bold mb-4">
-                SuperGyra <span className="text-zinc-500 font-normal">Lite</span>
-              </h3>
-
+              <h3 className="text-xl font-bold mb-4">SuperGyra <span className="text-zinc-500 font-normal">Lite</span></h3>
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <button className="border-2 border-blue-500 bg-blue-500/10 rounded-xl p-4 text-left">
                   <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center mb-2">
@@ -424,37 +504,27 @@ export default function Dashboard() {
                   <p className="text-lg font-bold">{pricing.symbol}{pricing.price.toLocaleString()}.00</p>
                   <p className="text-xs text-zinc-500">Billed monthly</p>
                 </button>
-
                 <button className="border border-zinc-800 rounded-xl p-4 text-left relative">
-                  <span className="absolute top-2 right-2 text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
-                    Save 17%
-                  </span>
+                  <span className="absolute top-2 right-2 text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">Save 17%</span>
                   <div className="w-5 h-5 rounded-full border-2 border-zinc-700 mb-2"></div>
                   <p className="text-lg font-bold">
-                    {pricing.symbol}
-                    {(pricing.price * 11.88).toLocaleString(undefined, { maximumFractionDigits: 0 })}.00
+                    {pricing.symbol}{(pricing.price * 11.88).toLocaleString(undefined, { maximumFractionDigits: 0 })}.00
                   </p>
                   <p className="text-xs text-zinc-500">Billed yearly</p>
                 </button>
               </div>
-
-              <button className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors">
-                Upgrade to Lite
-              </button>
-
+              <button className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors">Upgrade to Lite</button>
               <div className="flex flex-col gap-3 mt-6">
-                {["Access to Gyra Build", "Create apps with a single prompt", "2x longer conversations in Chat", "Expert mode", "Try out AI image & video creation", "Increased limits at regular speed"].map((feature, i) => (
+                {["Access to Gyra Build", "Create apps with a single prompt", "2x longer conversations in Chat", "Expert mode", "Try out AI image & video creation", "Increased limits at regular speed"].map((f, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <span className="text-zinc-400 w-6 text-center">✦</span>
-                    <p className="text-sm text-zinc-300">{feature}</p>
+                    <p className="text-sm text-zinc-300">{f}</p>
                   </div>
                 ))}
               </div>
             </div>
-
             <p className="text-center text-xs text-zinc-500">
-              <a href="#" className="hover:text-white">Terms</a> |{" "}
-              <a href="#" className="hover:text-white">Privacy Policy</a>
+              <a href="#" className="hover:text-white">Terms</a> | <a href="#" className="hover:text-white">Privacy Policy</a>
             </p>
           </div>
         </div>
