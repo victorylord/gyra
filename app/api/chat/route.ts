@@ -1,11 +1,33 @@
 export async function GET() {
-  const results: any = {
-    groq: { configured: !!process.env.GROQ_API_KEY, working: false, error: null },
-    grok: { configured: !!process.env.XAI_API_KEY, working: false, error: null },
-    gemini: { configured: !!process.env.GEMINI_API_KEY, working: false, error: null },
-  };
+  const results: any = {};
+
+  // Test Hugging Face
+  results.huggingface = { configured: !!process.env.HUGGINGFACE_API_TOKEN };
+  if (process.env.HUGGINGFACE_API_TOKEN) {
+    try {
+      const res = await fetch("https://router.huggingface.co/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
+        },
+        body: JSON.stringify({
+          model: "meta-llama/Llama-3.1-8B-Instruct",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 5,
+        }),
+      });
+      const data = await res.json();
+      results.huggingface.status = res.status;
+      results.huggingface.reply = data.choices?.[0]?.message?.content || null;
+      results.huggingface.error = data.error || null;
+    } catch (e: any) {
+      results.huggingface.error = e.message;
+    }
+  }
 
   // Test Groq
+  results.groq = { configured: !!process.env.GROQ_API_KEY };
   if (process.env.GROQ_API_KEY) {
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -21,14 +43,16 @@ export async function GET() {
         }),
       });
       const data = await res.json();
-      results.groq.working = !!data.choices;
-      if (!data.choices) results.groq.error = data?.error?.message || JSON.stringify(data);
+      results.groq.status = res.status;
+      results.groq.reply = data.choices?.[0]?.message?.content || null;
+      results.groq.error = data.error || null;
     } catch (e: any) {
       results.groq.error = e.message;
     }
   }
 
   // Test Grok
+  results.grok = { configured: !!process.env.XAI_API_KEY };
   if (process.env.XAI_API_KEY) {
     try {
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -44,14 +68,16 @@ export async function GET() {
         }),
       });
       const data = await res.json();
-      results.grok.working = !!data.choices;
-      if (!data.choices) results.grok.error = data?.error?.message || JSON.stringify(data);
+      results.grok.status = res.status;
+      results.grok.reply = data.choices?.[0]?.message?.content || null;
+      results.grok.error = data.error || null;
     } catch (e: any) {
       results.grok.error = e.message;
     }
   }
 
   // Test Gemini
+  results.gemini = { configured: !!process.env.GEMINI_API_KEY };
   if (process.env.GEMINI_API_KEY) {
     try {
       const res = await fetch(
@@ -65,14 +91,15 @@ export async function GET() {
         }
       );
       const data = await res.json();
-      results.gemini.working = !!data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!results.gemini.working) results.gemini.error = data?.error?.message || JSON.stringify(data);
+      results.gemini.status = res.status;
+      results.gemini.reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+      results.gemini.error = data?.error || null;
     } catch (e: any) {
       results.gemini.error = e.message;
     }
   }
 
-  return Response.json(results);
+  return Response.json(results, { status: 200 });
 }
 
 export async function POST(req: Request) {
@@ -87,7 +114,29 @@ export async function POST(req: Request) {
 
     const fullMessages = [systemPrompt, ...messages];
 
-    // 1. Groq
+    // 1. Hugging Face
+    if (process.env.HUGGINGFACE_API_TOKEN) {
+      try {
+        const res = await fetch("https://router.huggingface.co/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
+          },
+          body: JSON.stringify({
+            model: "meta-llama/Llama-3.1-8B-Instruct",
+            messages: fullMessages,
+            temperature: 0.7,
+          }),
+        });
+        const data = await res.json();
+        if (data.choices?.[0]?.message?.content) {
+          return Response.json({ message: data.choices[0].message.content, provider: "huggingface" });
+        }
+      } catch (e) {}
+    }
+
+    // 2. Groq
     if (process.env.GROQ_API_KEY) {
       try {
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -109,7 +158,7 @@ export async function POST(req: Request) {
       } catch (e) {}
     }
 
-    // 2. Grok
+    // 3. Grok
     if (process.env.XAI_API_KEY) {
       try {
         const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -131,7 +180,7 @@ export async function POST(req: Request) {
       } catch (e) {}
     }
 
-    // 3. Gemini
+    // 4. Gemini
     if (process.env.GEMINI_API_KEY) {
       try {
         const geminiContents = messages.map((m: any) => ({
