@@ -2,6 +2,7 @@ export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
+    // Gyra's personality and creator
     const systemPrompt = {
       role: "system",
       content:
@@ -29,7 +30,9 @@ export async function POST(req: Request) {
     const data = await response.json();
 
     if (data.choices && data.choices[0]) {
-      return Response.json({ message: data.choices[0].message.content });
+      return Response.json({
+        message: data.choices[0].message.content,
+      });
     } else {
       console.error("Groq API Error:", data);
       return Response.json(
