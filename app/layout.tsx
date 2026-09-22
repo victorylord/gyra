@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Gyra — Intelligent. Simplified.",
@@ -10,12 +11,8 @@ export const metadata: Metadata = {
   publisher: "Genvia AI Company",
   metadataBase: new URL("https://gyra.ng"),
   icons: {
-    icon: [
-      { url: "/icon.png", type: "image/png" },
-    ],
-    apple: [
-      { url: "/icon.png", type: "image/png" },
-    ],
+    icon: [{ url: "/icon.png", type: "image/png" }],
+    apple: [{ url: "/icon.png", type: "image/png" }],
     shortcut: "/icon.png",
   },
   openGraph: {
@@ -58,11 +55,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="icon" href="/icon.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/icon.png" />
-        <link rel="shortcut icon" href="/icon.png" />
-      </head>
       <body className="bg-black text-white antialiased">{children}</body>
     </html>
   );
