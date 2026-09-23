@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import Image from "next/image";
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
-  const [showToS, setShowToS] = useState(true);
+  const [showToS, setShowToS] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [country, setCountry] = useState<string>("Nigeria");
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsSubPage, setSettingsSubPage] = useState<string | null>(null);
 
@@ -30,6 +29,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
+  // Think + Search toggles
+  const [thinkMode, setThinkMode] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
+
   // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
 
@@ -42,17 +45,11 @@ export default function Dashboard() {
   const [haptics, setHaptics] = useState(true);
   const [responseStyle, setResponseStyle] = useState("Balanced");
 
-  useEffect(() => {
-    const detectCountry = async () => {
-      try {
-        const res = await fetch("https://ipapi.co/json/");
-        const data = await res.json();
-        if (data.country_name) setCountry(data.country_name);
-      } catch (e) {}
-    };
-    detectCountry();
-  }, []);
+  // Auto-scroll ref
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
+  // Load user prefs + chats
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -62,6 +59,22 @@ export default function Dashboard() {
         setReportEmail(user.email || "");
         setReportName(user.email?.split("@")[0] || "");
 
+        // Check TOS
+        const { data: pref } = await supabase
+          .from("user_prefs")
+          .select("*")
+          .eq("user_id", user.id)
+          .single();
+
+        if (!pref) {
+          // First time — create prefs and show TOS
+          await supabase.from("user_prefs").insert([{ user_id: user.id, tos_seen: false }]);
+          setShowToS(true);
+        } else if (!pref.tos_seen) {
+          setShowToS(true);
+        }
+
+        // Load chats
         const { data: chatsData } = await supabase
           .from("chats")
           .select("*")
@@ -71,10 +84,14 @@ export default function Dashboard() {
 
         if (chatsData) {
           setChats(chatsData);
-          if (chatsData.length > 0) setActiveChatId(chatsData[0].id);
+          if (chatsData.length > 0) {
+            setActiveChatId(chatsData[0].id);
+            await loadMessages(chatsData[0].id);
+          }
         }
       }
 
+      // Broadcast
       try {
         const { data: bc } = await supabase
           .from("broadcasts")
@@ -86,6 +103,7 @@ export default function Dashboard() {
         if (bc && bc[0]) setActiveBroadcast(bc[0]);
       } catch (e) {}
 
+      // Visitor tracking
       try {
         const geoRes = await fetch("https://ipapi.co/json/");
         const geo = await geoRes.json();
@@ -105,6 +123,30 @@ export default function Dashboard() {
     init();
   }, []);
 
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
+  const loadMessages = async (chatId: string) => {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: true });
+    if (data) {
+      setMessages(data.map((m: any) => ({ role: m.role, content: m.content })));
+    }
+  };
+
+  const markTosSeen = async () => {
+    if (!user) return;
+    await supabase.from("user_prefs").update({ tos_seen: true }).eq("user_id", user.id);
+    setShowToS(false);
+  };
+
   const createNewChat = async () => {
     if (!user) return;
     const { data } = await supabase
@@ -120,26 +162,30 @@ export default function Dashboard() {
     }
   };
 
+  const selectChat = async (id: string) => {
+    setActiveChatId(id);
+    setMessages([]);
+    setIsSidebarOpen(false);
+    await loadMessages(id);
+  };
+
   const sendMessage = async () => {
     if (!input.trim()) return;
-    if (!activeChatId) {
+
+    let chatId = activeChatId;
+    if (!chatId) {
       if (!user) return;
       const { data } = await supabase
         .from("chats")
         .insert([{ user_id: user.id, title: "New Conversation" }])
         .select()
         .single();
-      if (data) {
-        setChats([data, ...chats]);
-        setActiveChatId(data.id);
-        await runSend(data.id);
-      }
-      return;
+      if (!data) return;
+      setChats([data, ...chats]);
+      setActiveChatId(data.id);
+      chatId = data.id;
     }
-    await runSend(activeChatId);
-  };
 
-  const runSend = async (chatId: string) => {
     const userMessage = { role: "user", content: input };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -147,6 +193,12 @@ export default function Dashboard() {
     setInput("");
     setLoading(true);
 
+    // Save user message
+    await supabase.from("messages").insert([
+      { chat_id: chatId, role: "user", content: currentInput },
+    ]);
+
+    // Update title if first message
     if (messages.length === 0) {
       const newTitle =
         currentInput.substring(0, 25) + (currentInput.length > 25 ? "..." : "");
@@ -154,23 +206,70 @@ export default function Dashboard() {
       setChats(chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
     }
 
+    // Add empty assistant message that will be filled by streaming
+    setMessages([...updatedMessages, { role: "assistant", content: "" }]);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({
+          messages: updatedMessages,
+          think: thinkMode,
+          search: searchMode,
+        }),
       });
-      const data = await res.json();
-      if (data.message) {
-        setMessages([...updatedMessages, { role: "assistant", content: data.message }]);
-      } else {
-        setMessages([
-          ...updatedMessages,
-          { role: "assistant", content: "Sorry, I ran into an error. Please try again." },
-        ]);
+
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullReply = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const data = trimmed.slice(5).trim();
+          if (!data) continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.token) {
+              fullReply += parsed.token;
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { role: "assistant", content: fullReply };
+                return next;
+              });
+            }
+            if (parsed.done) {
+              // Save assistant message
+              await supabase.from("messages").insert([
+                { chat_id: chatId, role: "assistant", content: fullReply },
+              ]);
+            }
+          } catch (e) {}
+        }
       }
     } catch (err) {
       console.error(err);
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = {
+          role: "assistant",
+          content: "Sorry, I ran into an error. Please try again.",
+        };
+        return next;
+      });
     }
     setLoading(false);
   };
@@ -213,12 +312,6 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = "/";
-  };
-
-  const selectChat = (id: string) => {
-    setActiveChatId(id);
-    setMessages([]);
-    setIsSidebarOpen(false);
   };
 
   const formatChatDate = (dateString: string) => {
@@ -269,25 +362,6 @@ export default function Dashboard() {
     setMessages([]);
   };
 
-  const getPricing = () => {
-    const baseNaira = 10000;
-    const prices: { [key: string]: { symbol: string; price: number } } = {
-      Nigeria: { symbol: "₦", price: baseNaira },
-      "United States": { symbol: "$", price: 10 },
-      "United Kingdom": { symbol: "£", price: 8 },
-      Canada: { symbol: "C$", price: 14 },
-      Germany: { symbol: "€", price: 9 },
-      France: { symbol: "€", price: 9 },
-      India: { symbol: "₹", price: 800 },
-      "South Africa": { symbol: "R", price: 180 },
-      Ghana: { symbol: "GH₵", price: 150 },
-      Kenya: { symbol: "KSh", price: 1300 },
-    };
-    return prices[country] || { symbol: "$", price: 10 };
-  };
-
-  const pricing = getPricing();
-
   const filteredChats = chats.filter((chat) =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -326,15 +400,9 @@ export default function Dashboard() {
       </div>
       <button
         onClick={() => setValue(!value)}
-        className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
-          value ? "bg-white" : "bg-zinc-700"
-        }`}
+        className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${value ? "bg-white" : "bg-zinc-700"}`}
       >
-        <div
-          className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${
-            value ? "translate-x-6" : "translate-x-0.5"
-          }`}
-        />
+        <div className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${value ? "translate-x-6" : "translate-x-0.5"}`} />
       </button>
     </div>
   );
@@ -356,47 +424,21 @@ export default function Dashboard() {
           <div className="flex flex-col gap-4">
             <div>
               <label className="block text-sm text-zinc-400 mb-2">Your Name</label>
-              <input
-                type="text"
-                value={reportName}
-                onChange={(e) => setReportName(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-              />
+              <input type="text" value={reportName} onChange={(e) => setReportName(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-sm text-zinc-400 mb-2">Your Email</label>
-              <input
-                type="email"
-                value={reportEmail}
-                onChange={(e) => setReportEmail(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-              />
+              <input type="email" value={reportEmail} onChange={(e) => setReportEmail(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-sm text-zinc-400 mb-2">Title</label>
-              <input
-                type="text"
-                value={reportTitle}
-                onChange={(e) => setReportTitle(e.target.value)}
-                placeholder="Brief summary of the issue"
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-              />
+              <input type="text" value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} placeholder="Brief summary of the issue" className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-sm text-zinc-400 mb-2">Write your problem here</label>
-              <textarea
-                value={reportDescription}
-                onChange={(e) => setReportDescription(e.target.value)}
-                placeholder="Describe what went wrong in detail..."
-                rows={6}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
-              />
+              <textarea value={reportDescription} onChange={(e) => setReportDescription(e.target.value)} placeholder="Describe what went wrong in detail..." rows={6} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none" />
             </div>
-            <button
-              onClick={submitReport}
-              disabled={reportSubmitting}
-              className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
-            >
+            <button onClick={submitReport} disabled={reportSubmitting} className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50">
               {reportSubmitting ? "Submitting..." : "Submit Report"}
             </button>
           </div>
@@ -407,44 +449,22 @@ export default function Dashboard() {
           <div className="flex flex-col gap-3">
             <p className="text-sm text-zinc-400 mb-2">Choose how Gyra looks on your device.</p>
             {["System", "Dark", "Light"].map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  theme === t ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
+              <button key={t} onClick={() => setTheme(t)} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${theme === t ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}>
                 <span className="text-sm font-medium">{t}</span>
-                {theme === t && (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {theme === t && (<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>)}
               </button>
             ))}
           </div>
         );
 
       case "Haptics":
-        return (
-          <div className="flex flex-col gap-3">
-            {settingsToggle(
-              "Enable Haptics",
-              "📳",
-              "Vibrate on button taps and messages.",
-              haptics,
-              setHaptics
-            )}
-          </div>
-        );
+        return <div className="flex flex-col gap-3">{settingsToggle("Enable Haptics", "📳", "Vibrate on button taps and messages.", haptics, setHaptics)}</div>;
 
       case "Widget":
         return (
           <div className="text-zinc-300">
             <p className="text-sm mb-3">Home screen widgets are coming soon.</p>
-            <p className="text-xs text-zinc-500">
-              You will be able to add Gyra shortcuts to your home screen.
-            </p>
+            <p className="text-xs text-zinc-500">You will be able to add Gyra shortcuts to your home screen.</p>
           </div>
         );
 
@@ -462,21 +482,9 @@ export default function Dashboard() {
           <div className="flex flex-col gap-4">
             <p className="text-sm text-zinc-400">Choose how Gyra responds to you.</p>
             {["Balanced", "Concise", "Detailed", "Creative"].map((style) => (
-              <button
-                key={style}
-                onClick={() => setResponseStyle(style)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  responseStyle === style
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
+              <button key={style} onClick={() => setResponseStyle(style)} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${responseStyle === style ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}>
                 <span className="text-sm font-medium">{style}</span>
-                {responseStyle === style && (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {responseStyle === style && (<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>)}
               </button>
             ))}
           </div>
@@ -499,9 +507,7 @@ export default function Dashboard() {
                     <p className="text-sm font-medium">{c.name}</p>
                     <p className="text-xs text-zinc-500">{c.desc}</p>
                   </div>
-                  <button className="text-xs px-3 py-1.5 bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors">
-                    Connect
-                  </button>
+                  <button className="text-xs px-3 py-1.5 bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors">Connect</button>
                 </div>
               ))}
             </div>
@@ -537,21 +543,9 @@ export default function Dashboard() {
           <div className="flex flex-col gap-3">
             <p className="text-sm text-zinc-400 mb-2">Choose your voice assistant.</p>
             {["Ara", "Nova", "Atlas", "Juno"].map((v) => (
-              <button
-                key={v}
-                onClick={() => setVoiceMode(v)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  voiceMode === v
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
+              <button key={v} onClick={() => setVoiceMode(v)} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${voiceMode === v ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}>
                 <span className="text-sm font-medium">{v}</span>
-                {voiceMode === v && (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {voiceMode === v && (<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>)}
               </button>
             ))}
           </div>
@@ -574,9 +568,7 @@ export default function Dashboard() {
             <p className="text-sm mb-3">Share your conversations with a public link.</p>
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center">
               <p className="text-xs text-zinc-500 mb-2">No shared conversations yet.</p>
-              <p className="text-xs text-zinc-600">
-                Open a chat and tap the share icon to create a link.
-              </p>
+              <p className="text-xs text-zinc-600">Open a chat and tap the share icon to create a link.</p>
             </div>
           </div>
         );
@@ -585,10 +577,7 @@ export default function Dashboard() {
         return (
           <div className="flex flex-col gap-4">
             <p className="text-sm text-zinc-400">Manage your data and conversations.</p>
-            <button
-              onClick={clearAllChats}
-              className="w-full bg-red-600/20 border border-red-600/50 text-red-400 py-3 rounded-xl font-medium text-sm hover:bg-red-600/30 transition-colors"
-            >
+            <button onClick={clearAllChats} className="w-full bg-red-600/20 border border-red-600/50 text-red-400 py-3 rounded-xl font-medium text-sm hover:bg-red-600/30 transition-colors">
               Clear All Conversations
             </button>
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
@@ -608,7 +597,6 @@ export default function Dashboard() {
                 { name: "React", license: "MIT" },
                 { name: "Tailwind CSS", license: "MIT" },
                 { name: "Supabase", license: "Apache 2.0" },
-                { name: "Node Telegram Bot API", license: "MIT" },
               ].map((lib) => (
                 <div key={lib.name} className="flex items-center justify-between px-3 py-2 bg-zinc-900 rounded-lg">
                   <span className="text-sm">{lib.name}</span>
@@ -623,18 +611,9 @@ export default function Dashboard() {
         return (
           <div className="text-zinc-300 text-sm leading-relaxed flex flex-col gap-4">
             <p className="font-semibold">Terms of Use</p>
-            <p>
-              By using Gyra, you agree to use our AI responsibly. You must not use
-              Gyra for illegal activities, to generate harmful content, or to
-              infringe on others' rights.
-            </p>
-            <p>
-              Gyra is provided as a free service. We reserve the right to
-              rate-limit, suspend, or terminate access at any time.
-            </p>
-            <p className="text-xs text-zinc-500">
-              Last updated: September 2026
-            </p>
+            <p>By using Gyra, you agree to use our AI responsibly. You must not use Gyra for illegal activities, to generate harmful content, or to infringe on others' rights.</p>
+            <p>Gyra is provided as a free service. We reserve the right to rate-limit, suspend, or terminate access at any time.</p>
+            <p className="text-xs text-zinc-500">Last updated: September 2026</p>
           </div>
         );
 
@@ -642,18 +621,9 @@ export default function Dashboard() {
         return (
           <div className="text-zinc-300 text-sm leading-relaxed flex flex-col gap-4">
             <p className="font-semibold">Privacy Policy</p>
-            <p>
-              We collect only what we need to run Gyra: your email (from
-              Google sign-in), your chats, and anonymous usage data.
-            </p>
-            <p>
-              Your conversations are stored securely in Supabase and are never
-              shared with third parties. AI providers see the messages you send
-              (to generate responses), but they do not store them long-term.
-            </p>
-            <p className="text-xs text-zinc-500">
-              Last updated: September 2026
-            </p>
+            <p>We collect only what we need to run Gyra: your email (from Google sign-in), your chats, and anonymous usage data.</p>
+            <p>Your conversations are stored securely in Supabase and are never shared with third parties. AI providers see the messages you send, but they do not store them long-term.</p>
+            <p className="text-xs text-zinc-500">Last updated: September 2026</p>
           </div>
         );
 
@@ -666,42 +636,27 @@ export default function Dashboard() {
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
       {/* BROADCAST BANNER */}
       {activeBroadcast && (
-        <div
-          className={`absolute top-4 left-1/2 -translate-x-1/2 z-[90] max-w-md w-[calc(100%-2rem)] rounded-2xl border p-4 shadow-2xl ${
-            activeBroadcast.type === "alert"
-              ? "bg-red-950/95 border-red-500/50"
-              : activeBroadcast.type === "warning"
-              ? "bg-yellow-950/95 border-yellow-500/50"
-              : activeBroadcast.type === "success"
-              ? "bg-green-950/95 border-green-500/50"
-              : "bg-blue-950/95 border-blue-500/50"
-          }`}
-        >
+        <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-[90] max-w-md w-[calc(100%-2rem)] rounded-2xl border p-4 shadow-2xl ${activeBroadcast.type === "alert" ? "bg-red-950/95 border-red-500/50" : activeBroadcast.type === "warning" ? "bg-yellow-950/95 border-yellow-500/50" : activeBroadcast.type === "success" ? "bg-green-950/95 border-green-500/50" : "bg-blue-950/95 border-blue-500/50"}`}>
           <div className="flex items-start gap-3">
             <span className="text-xl">📢</span>
             <div className="flex-1">
               <p className="font-semibold text-sm">{activeBroadcast.title}</p>
               <p className="text-xs text-zinc-300 mt-1">{activeBroadcast.message}</p>
             </div>
-            <button onClick={() => setActiveBroadcast(null)} className="text-zinc-400 hover:text-white">
-              ✕
-            </button>
+            <button onClick={() => setActiveBroadcast(null)} className="text-zinc-400 hover:text-white">✕</button>
           </div>
         </div>
       )}
 
-      {/* TOS MODAL */}
+      {/* TOS MODAL — shows once ever */}
       {showToS && (
         <div className="absolute inset-0 bg-black/90 z-[80] flex items-center justify-center p-6 backdrop-blur-sm">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full flex flex-col items-center text-center">
             <h2 className="text-2xl font-bold mb-4">Updates to our Terms of Service</h2>
             <p className="text-zinc-400 mb-8 leading-relaxed">
-              We're updating our Terms of Service and Acceptable Use Policy.
+              We're updating our Terms of Service and Acceptable Use Policy. Now's a great chance to review them.
             </p>
-            <button
-              onClick={() => setShowToS(false)}
-              className="bg-white text-black px-8 py-3 rounded-full font-medium hover:bg-zinc-200 transition-colors w-full"
-            >
+            <button onClick={markTosSeen} className="bg-white text-black px-8 py-3 rounded-full font-medium hover:bg-zinc-200 transition-colors w-full">
               Got it
             </button>
           </div>
@@ -714,15 +669,11 @@ export default function Dashboard() {
           <div className="flex items-center gap-4 p-4 border-b border-zinc-800/50">
             {settingsSubPage ? (
               <button onClick={() => setSettingsSubPage(null)} className="text-zinc-400 hover:text-white">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
               </button>
             ) : (
               <button onClick={() => setShowSettings(false)} className="text-zinc-400 hover:text-white">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             )}
             <h2 className="text-xl font-bold">{settingsSubPage || "Settings"}</h2>
@@ -743,10 +694,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
-                  className="w-full flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 rounded-2xl p-4 mb-6"
-                >
+                <button onClick={() => { setShowSettings(false); setShowUpgrade(true); }} className="w-full flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 rounded-2xl p-4 mb-6">
                   <Image src="/logo.jpeg" alt="Gyra" width={32} height={32} className="rounded-full" />
                   <div className="flex-1 text-left">
                     <p className="font-semibold text-sm">SuperGyra</p>
@@ -796,10 +744,7 @@ export default function Dashboard() {
                   {settingsRow("Report a Problem", "🚩")}
                 </div>
 
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-red-500"
-                >
+                <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-red-500">
                   <span className="w-6 h-6 flex items-center justify-center">🚪</span>
                   <p className="text-sm font-medium">Sign out</p>
                 </button>
@@ -816,9 +761,7 @@ export default function Dashboard() {
         <div className="absolute inset-0 bg-black z-[75] flex flex-col overflow-hidden">
           <div className="flex items-center gap-4 p-4">
             <button onClick={() => setShowUpgrade(false)} className="text-zinc-400 hover:text-white">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-6 pb-6">
@@ -826,9 +769,7 @@ export default function Dashboard() {
             <p className="text-zinc-400 text-center text-sm mb-6">Choose the right plan for you</p>
             <div className="flex items-center gap-2 bg-zinc-900 rounded-full p-1 mb-6 overflow-x-auto">
               {["Lite", "SuperGyra", "Plus", "Heavy"].map((tier, i) => (
-                <button key={tier} className={`flex-1 py-2 px-4 rounded-full text-sm font-medium whitespace-nowrap ${i === 0 ? "bg-zinc-800 text-white" : "text-zinc-500"}`}>
-                  {tier}
-                </button>
+                <button key={tier} className={`flex-1 py-2 px-4 rounded-full text-sm font-medium whitespace-nowrap ${i === 0 ? "bg-zinc-800 text-white" : "text-zinc-500"}`}>{tier}</button>
               ))}
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
@@ -836,23 +777,19 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <button className="border-2 border-blue-500 bg-blue-500/10 rounded-xl p-4 text-left">
                   <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center mb-2">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                    </svg>
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
                   </div>
-                  <p className="text-lg font-bold">{pricing.symbol}{pricing.price.toLocaleString()}.00</p>
+                  <p className="text-lg font-bold">₦10,000.00</p>
                   <p className="text-xs text-zinc-500">Billed monthly</p>
                 </button>
                 <button className="border border-zinc-800 rounded-xl p-4 text-left relative">
                   <span className="absolute top-2 right-2 text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">Save 17%</span>
                   <div className="w-5 h-5 rounded-full border-2 border-zinc-700 mb-2"></div>
-                  <p className="text-lg font-bold">
-                    {pricing.symbol}{(pricing.price * 11.88).toLocaleString(undefined, { maximumFractionDigits: 0 })}.00
-                  </p>
+                  <p className="text-lg font-bold">₦118,800.00</p>
                   <p className="text-xs text-zinc-500">Billed yearly</p>
                 </button>
               </div>
-              <button className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors">Upgrade to Lite</button>
+              <button onClick={() => alert("Payments coming soon!")} className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors">Upgrade to Lite</button>
               <div className="flex flex-col gap-3 mt-6">
                 {["Access to Gyra Build", "Create apps with a single prompt", "2x longer conversations in Chat", "Expert mode", "Try out AI image & video creation", "Increased limits at regular speed"].map((f, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -885,9 +822,7 @@ export default function Dashboard() {
               <p className="text-sm font-semibold truncate">{user ? user.email.split("@")[0] : "Loading..."}</p>
             </div>
             <button onClick={() => setIsSidebarOpen(false)} className="text-zinc-500 hover:text-white md:hidden">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-              </svg>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
             </button>
           </div>
 
@@ -898,26 +833,15 @@ export default function Dashboard() {
               { label: "Projects", icon: "📁" },
               { label: "Gyra Bot", icon: "🤖", badge: "New" },
             ].map((item) => (
-              <button
-                key={item.label}
-                onClick={() => alert(`${item.label} coming soon!`)}
-                className="flex items-center gap-3 px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors text-left"
-              >
+              <button key={item.label} onClick={() => alert(`${item.label} coming soon!`)} className="flex items-center gap-3 px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors text-left">
                 <span className="w-5 h-5 flex items-center justify-center text-zinc-400">{item.icon}</span>
                 {item.label}
-                {item.badge && (
-                  <span className="ml-auto text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
-                    {item.badge}
-                  </span>
-                )}
+                {item.badge && (<span className="ml-auto text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">{item.badge}</span>)}
               </button>
             ))}
           </div>
 
-          <button
-            onClick={() => { setShowUpgrade(true); setIsSidebarOpen(false); }}
-            className="w-full flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-2xl p-4 mb-6 transition-colors text-left"
-          >
+          <button onClick={() => { setShowUpgrade(true); setIsSidebarOpen(false); }} className="w-full flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-2xl p-4 mb-6 transition-colors text-left">
             <div className="flex-1">
               <p className="font-semibold text-sm">SuperGyra</p>
               <p className="text-xs text-blue-200">Early access to new features</p>
@@ -935,20 +859,12 @@ export default function Dashboard() {
               ) : (
                 filteredChats.map((chat) => (
                   <div key={chat.id} className="relative group">
-                    <button
-                      onClick={() => selectChat(chat.id)}
-                      className={`w-full text-left px-2 py-2 rounded-lg transition-colors pr-8 ${activeChatId === chat.id ? "bg-zinc-800 text-white" : "text-zinc-300 hover:bg-zinc-900"}`}
-                    >
+                    <button onClick={() => selectChat(chat.id)} className={`w-full text-left px-2 py-2 rounded-lg transition-colors pr-8 ${activeChatId === chat.id ? "bg-zinc-800 text-white" : "text-zinc-300 hover:bg-zinc-900"}`}>
                       <p className="text-sm truncate">{chat.pinned && "📌 "}{chat.title}</p>
                       <p className="text-[10px] text-zinc-500 mt-0.5">{formatChatDate(chat.created_at)}</p>
                     </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setActiveChatMenu(activeChatMenu === chat.id ? null : chat.id); }}
-                      className={`absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 ${activeChatMenu === chat.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                    >
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-                      </svg>
+                    <button onClick={(e) => { e.stopPropagation(); setActiveChatMenu(activeChatMenu === chat.id ? null : chat.id); }} className={`absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 ${activeChatMenu === chat.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                     </button>
                     {activeChatMenu === chat.id && (
                       <div className="absolute right-0 top-12 w-40 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-[100] p-1 flex flex-col">
@@ -969,40 +885,25 @@ export default function Dashboard() {
         <div className="p-4 border-t border-zinc-800/50">
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center gap-2 bg-zinc-900 rounded-full px-4 py-2">
-              <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-transparent outline-none text-sm text-zinc-300 placeholder:text-zinc-500 flex-1 min-w-0"
-              />
+              <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <input type="text" placeholder="Search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent outline-none text-sm text-zinc-300 placeholder:text-zinc-500 flex-1 min-w-0" />
             </div>
             <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center transition-colors shrink-0">
-              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             </button>
             <button onClick={createNewChat} className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center transition-colors shrink-0">
-              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
+              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
           </div>
         </div>
       </div>
 
       {/* MAIN AREA */}
-      <div className="flex-1 flex flex-col relative z-10 h-full">
-        <div className="w-full flex items-center justify-between px-4 py-3 border-b border-zinc-800/50">
+      <div className="flex-1 flex flex-col relative z-10 h-full overflow-hidden">
+        <div className="w-full flex items-center justify-between px-4 py-3 border-b border-zinc-800/50 shrink-0">
           <div className="flex items-center gap-2">
             <button onClick={() => setIsSidebarOpen(true)} className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center md:hidden">
-              <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
             <div className="flex items-center gap-4 md:hidden ml-2">
               <button className="text-white font-semibold text-base border-b-2 border-white pb-1">Ask</button>
@@ -1013,50 +914,70 @@ export default function Dashboard() {
               <h1 className="text-lg font-bold">Gyra</h1>
             </div>
           </div>
-          <button
-            onClick={() => (window.location.href = "/api")}
-            className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center"
-            title="Developer API"
-          >
-            <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-            </svg>
+          <button onClick={() => (window.location.href = "/api")} className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center" title="Developer API">
+            <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-end w-full max-w-3xl mx-auto relative z-10 overflow-y-auto mb-4 px-4">
+        {/* MESSAGES SCROLL AREA */}
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto px-4 py-4">
           {messages.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="h-full flex items-center justify-center">
               <div className="w-40 h-40 md:w-64 md:h-64 rounded-full overflow-hidden opacity-20 flex items-center justify-center">
                 <Image src="/logo.jpeg" alt="Gyra Logo" width={256} height={256} className="object-contain" />
               </div>
             </div>
           ) : (
-            <div className="w-full flex flex-col gap-4 mt-auto pb-6">
+            <div className="w-full flex flex-col gap-4 pb-4">
               {messages.map((msg, i) => (
-                <div key={i} className={`p-4 rounded-xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-blue-600 self-end text-white" : "bg-zinc-800 self-start text-zinc-200"}`}>
+                <div key={i} className={`p-4 rounded-xl max-w-[85%] leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-blue-600 self-end text-white" : "bg-zinc-800 self-start text-zinc-200"}`}>
                   {msg.content}
+                  {loading && i === messages.length - 1 && msg.role === "assistant" && !msg.content && (
+                    <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
+                  )}
                 </div>
               ))}
-              {loading && <div className="text-zinc-500 self-start italic animate-pulse">Gyra is thinking...</div>}
+              <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
-        <div className="w-full max-w-3xl mx-auto px-4 mb-4">
-          {messages.length === 0 && (
-            <div className="flex gap-2 mb-3 overflow-x-auto">
-              <button onClick={() => setShowUpgrade(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                Try SuperGyra
-              </button>
-              <button onClick={() => alert("Build apps coming soon!")} className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border border-zinc-800">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
-                Build apps and sites
-              </button>
-            </div>
-          )}
+        {/* INPUT AREA */}
+        <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
+          {/* THINK + SEARCH BUTTONS */}
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={() => setThinkMode(!thinkMode)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                thinkMode
+                  ? "bg-blue-600 border-blue-500 text-white"
+                  : "bg-transparent border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(30 12 12)" />
+                <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-30 12 12)" />
+              </svg>
+              Think
+            </button>
+            <button
+              onClick={() => setSearchMode(!searchMode)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                searchMode
+                  ? "bg-blue-600 border-blue-500 text-white"
+                  : "bg-transparent border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+              </svg>
+              Search
+            </button>
+          </div>
 
+          {/* INPUT BOX */}
           <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-3 flex flex-col gap-2">
             <input
               type="text"
@@ -1082,14 +1003,8 @@ export default function Dashboard() {
                   <svg className="w-4 h-4 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0-4a7 7 0 01-7-7" /></svg>
                 </button>
                 {input.trim().length > 0 ? (
-                  <button
-                    onClick={sendMessage}
-                    disabled={loading}
-                    className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="white" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
+                  <button onClick={sendMessage} disabled={loading} className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50">
+                    <svg className="w-5 h-5" fill="none" stroke="white" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7" /></svg>
                   </button>
                 ) : (
                   <button className="bg-white text-black px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-zinc-200 transition-colors">

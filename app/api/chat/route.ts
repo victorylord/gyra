@@ -1,7 +1,9 @@
+// ============================================================
+// DIAGNOSTIC ENDPOINT — visit /api/chat in browser to test keys
+// ============================================================
 export async function GET() {
   const results: any = {};
 
-  // Test Hugging Face
   results.huggingface = { configured: !!process.env.HUGGINGFACE_API_TOKEN };
   if (process.env.HUGGINGFACE_API_TOKEN) {
     try {
@@ -26,7 +28,6 @@ export async function GET() {
     }
   }
 
-  // Test Groq
   results.groq = { configured: !!process.env.GROQ_API_KEY };
   if (process.env.GROQ_API_KEY) {
     try {
@@ -51,7 +52,6 @@ export async function GET() {
     }
   }
 
-  // Test Grok
   results.grok = { configured: !!process.env.XAI_API_KEY };
   if (process.env.XAI_API_KEY) {
     try {
@@ -76,7 +76,6 @@ export async function GET() {
     }
   }
 
-  // Test Gemini
   results.gemini = { configured: !!process.env.GEMINI_API_KEY };
   if (process.env.GEMINI_API_KEY) {
     try {
@@ -102,9 +101,12 @@ export async function GET() {
   return Response.json(results, { status: 200 });
 }
 
+// ============================================================
+// MAIN CHAT ENDPOINT — streaming with multi-provider fallback
+// ============================================================
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const { messages, think, search } = await req.json();
 
     const systemPrompt = {
       role: "system",
@@ -131,56 +133,173 @@ BEHAVIOR:
 Always be honest. Never hallucinate facts. If you are uncertain, clearly say so. Never insult people. Never discriminate. Never be rude. Never argue unnecessarily. Always stay respectful. Always try your best to help.
 
 GOAL:
-Your mission is to make every conversation feel human, intelligent, warm, memorable, and genuinely helpful. Whether solving a complex programming problem, explaining a difficult concept, chatting casually, or encouraging someone, always make the user feel listened to, respected, and supported. Leave every conversation better than you found it.`,
+Your mission is to make every conversation feel human, intelligent, warm, memorable, and genuinely helpful. Whether solving a complex programming problem, explaining a difficult concept, chatting casually, or encouraging someone, always make the user feel listened to, respected, and supported. Leave every conversation better than you found it.${
+        think
+          ? "\n\nTHINK MODE IS ON: Take your time to reason carefully. Think step-by-step before answering. Be thorough and detailed in your reasoning."
+          : ""
+      }${
+        search
+          ? "\n\nSEARCH MODE IS ON: Reference current events and up-to-date information when relevant."
+          : ""
+      }`,
     };
 
     const fullMessages = [systemPrompt, ...messages];
 
-    // 1. Hugging Face
-    if (process.env.HUGGINGFACE_API_TOKEN) {
-      try {
-        const res = await fetch("https://router.huggingface.co/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
-          },
-          body: JSON.stringify({
-            model: "meta-llama/Llama-3.1-8B-Instruct",
-            messages: fullMessages,
-            temperature: 0.7,
-          }),
-        });
-        const data = await res.json();
-        if (data.choices?.[0]?.message?.content) {
-          return Response.json({ message: data.choices[0].message.content, provider: "huggingface" });
-        }
-      } catch (e) {}
-    }
-
-    // 2. Groq
+    // ============================================================
+    // 1. PRIMARY — GROQ STREAMING (fastest, best UX)
+    // ============================================================
     if (process.env.GROQ_API_KEY) {
       try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: fullMessages,
-            temperature: 0.7,
-          }),
-        });
-        const data = await res.json();
-        if (data.choices?.[0]?.message?.content) {
-          return Response.json({ message: data.choices[0].message.content, provider: "groq" });
+        const model = think
+          ? "llama-3.3-70b-versatile"
+          : "llama-3.1-8b-instant";
+
+        const groqRes = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: fullMessages,
+              temperature: 0.7,
+              stream: true,
+            }),
+          }
+        );
+
+        if (groqRes.ok && groqRes.body) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              const reader = groqRes.body!.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+
+                    const data = trimmed.slice(5).trim();
+                    if (data === "[DONE]") {
+                      controller.enqueue(
+                        new TextEncoder().encode(
+                          `data: ${JSON.stringify({ done: true, provider: "groq" })}\n\n`
+                        )
+                      );
+                      controller.close();
+                      return;
+                    }
+
+                    try {
+                      const parsed = JSON.parse(data);
+                      const token = parsed.choices?.[0]?.delta?.content;
+                      if (token) {
+                        controller.enqueue(
+                          new TextEncoder().encode(
+                            `data: ${JSON.stringify({ token })}\n\n`
+                          )
+                        );
+                      }
+                    } catch (e) {}
+                  }
+                }
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify({ done: true, provider: "groq" })}\n\n`
+                  )
+                );
+                controller.close();
+              } catch (err) {
+                controller.error(err);
+              }
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
         }
-      } catch (e) {}
+      } catch (err) {
+        console.warn("Groq streaming failed, falling back:", err);
+      }
     }
 
-    // 3. Grok
+    // ============================================================
+    // 2. FALLBACK — HUGGING FACE (simulated streaming)
+    // ============================================================
+    if (process.env.HUGGINGFACE_API_TOKEN) {
+      try {
+        const res = await fetch(
+          "https://router.huggingface.co/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
+            },
+            body: JSON.stringify({
+              model: "meta-llama/Llama-3.1-8B-Instruct",
+              messages: fullMessages,
+              temperature: 0.7,
+            }),
+          }
+        );
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content;
+
+        if (text) {
+          const words = text.split(/(\s+)/);
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const word of words) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify({ token: word })}\n\n`
+                  )
+                );
+                await new Promise((r) => setTimeout(r, 20));
+              }
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify({ done: true, provider: "huggingface" })}\n\n`
+                )
+              );
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        }
+      } catch (e) {
+        console.warn("Hugging Face failed, falling back:", e);
+      }
+    }
+
+    // ============================================================
+    // 3. FALLBACK — GROK (xAI) (simulated streaming)
+    // ============================================================
     if (process.env.XAI_API_KEY) {
       try {
         const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -196,20 +315,54 @@ Your mission is to make every conversation feel human, intelligent, warm, memora
           }),
         });
         const data = await res.json();
-        if (data.choices?.[0]?.message?.content) {
-          return Response.json({ message: data.choices[0].message.content, provider: "grok" });
+        const text = data.choices?.[0]?.message?.content;
+
+        if (text) {
+          const words = text.split(/(\s+)/);
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const word of words) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify({ token: word })}\n\n`
+                  )
+                );
+                await new Promise((r) => setTimeout(r, 20));
+              }
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify({ done: true, provider: "grok" })}\n\n`
+                )
+              );
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Grok failed, falling back:", e);
+      }
     }
 
-    // 4. Gemini
+    // ============================================================
+    // 4. FALLBACK — GEMINI (simulated streaming)
+    // ============================================================
     if (process.env.GEMINI_API_KEY) {
       try {
         const geminiContents = messages.map((m: any) => ({
           role: m.role === "assistant" ? "model" : "user",
           parts: [{ text: m.content }],
         }));
-        geminiContents.unshift({ role: "user", parts: [{ text: systemPrompt.content }] });
+        geminiContents.unshift({
+          role: "user",
+          parts: [{ text: systemPrompt.content }],
+        });
 
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -221,14 +374,49 @@ Your mission is to make every conversation feel human, intelligent, warm, memora
         );
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
         if (text) {
-          return Response.json({ message: text, provider: "gemini" });
+          const words = text.split(/(\s+)/);
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const word of words) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify({ token: word })}\n\n`
+                  )
+                );
+                await new Promise((r) => setTimeout(r, 20));
+              }
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify({ done: true, provider: "gemini" })}\n\n`
+                )
+              );
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Gemini failed:", e);
+      }
     }
 
-    return Response.json({ error: "All providers failed" }, { status: 500 });
+    // ============================================================
+    // ALL PROVIDERS FAILED
+    // ============================================================
+    return Response.json(
+      { error: "All providers failed. Check /api/chat for diagnostics." },
+      { status: 500 }
+    );
   } catch (error) {
+    console.error("Server error:", error);
     return Response.json({ error: "Server error" }, { status: 500 });
   }
 }
