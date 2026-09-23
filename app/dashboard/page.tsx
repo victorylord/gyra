@@ -4,6 +4,104 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import Image from "next/image";
 
+
+function MessageContent({ content }: { content: string }) {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const copyToClipboard = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  
+  const parts: { type: "text" | "code"; content: string; language?: string }[] = [];
+  const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    // Add text before the code block
+    if (match.index > lastIndex) {
+      parts.push({
+        type: "text",
+        content: content.substring(lastIndex, match.index),
+      });
+    }
+    // Add the code block
+    parts.push({
+      type: "code",
+      language: match[1] || "code",
+      content: match[2].trim(),
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < content.length) {
+    parts.push({
+      type: "text",
+      content: content.substring(lastIndex),
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {parts.map((part, i) => {
+        if (part.type === "text") {
+          return (
+            <div
+              key={i}
+              className="whitespace-pre-wrap leading-relaxed"
+            >
+              {part.content}
+            </div>
+          );
+        }
+        // Code block
+        return (
+          <div
+            key={i}
+            className="bg-black border border-zinc-700 rounded-xl overflow-hidden my-2"
+          >
+            {/* Code header with language and copy */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-700 bg-zinc-950">
+              <span className="text-xs text-zinc-500 font-mono">
+                {part.language}
+              </span>
+              <button
+                onClick={() => copyToClipboard(part.content, i)}
+                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-2.5 py-1 rounded-md border border-zinc-800 transition-colors"
+              >
+                {copiedIndex === i ? (
+                  <>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+            {/* Code body with horizontal scroll */}
+            <pre className="p-4 text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre">
+              {part.content}
+            </pre>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [showToS, setShowToS] = useState(false);
@@ -49,7 +147,7 @@ export default function Dashboard() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load user prefs + chats
+  
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -59,7 +157,7 @@ export default function Dashboard() {
         setReportEmail(user.email || "");
         setReportName(user.email?.split("@")[0] || "");
 
-        // Check TOS
+        
         const { data: pref } = await supabase
           .from("user_prefs")
           .select("*")
@@ -828,18 +926,25 @@ export default function Dashboard() {
 
           <div className="flex flex-col gap-2 mb-4">
             {[
-              { label: "Automations", icon: "⚙️" },
-              { label: "Library", icon: "📚" },
-              { label: "Projects", icon: "📁" },
-              { label: "Gyra Bot", icon: "🤖", badge: "New" },
+             { label: "Automations", icon: "⚙️", action: () => alert("Automations coming soon!") },
+             { label: "Library", icon: "📚", action: () => alert("Library coming soon!") },
+             { label: "Projects", icon: "📁", action: () => alert("Projects coming soon!") },
+             { label: "Gyra Bot", icon: "🤖", badge: "New", action: () => window.open("https://t.me/Gyra_AiBot", "_blank") },
             ].map((item) => (
-              <button key={item.label} onClick={() => alert(`${item.label} coming soon!`)} className="flex items-center gap-3 px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors text-left">
-                <span className="w-5 h-5 flex items-center justify-center text-zinc-400">{item.icon}</span>
-                {item.label}
-                {item.badge && (<span className="ml-auto text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">{item.badge}</span>)}
-              </button>
-            ))}
-          </div>
+             <button
+               key={item.label}
+               onClick={item.action}
+               className="flex items-center gap-3 px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors text-left"
+             >
+               <span className="w-5 h-5 flex items-center justify-center text-zinc-400">{item.icon}</span>
+               {item.label}
+               {item.badge && (
+                <span className="ml-auto text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
+                  {item.badge}
+                </span>
+             )}
+          </button>
+        ))}
 
           <button onClick={() => { setShowUpgrade(true); setIsSidebarOpen(false); }} className="w-full flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-2xl p-4 mb-6 transition-colors text-left">
             <div className="flex-1">
@@ -930,13 +1035,17 @@ export default function Dashboard() {
           ) : (
             <div className="w-full flex flex-col gap-4 pb-4">
               {messages.map((msg, i) => (
-                <div key={i} className={`p-4 rounded-xl max-w-[85%] leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-blue-600 self-end text-white" : "bg-zinc-800 self-start text-zinc-200"}`}>
-                  {msg.content}
-                  {loading && i === messages.length - 1 && msg.role === "assistant" && !msg.content && (
-                    <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
-                  )}
-                </div>
-              ))}
+  <div key={i} className={`p-4 rounded-xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-blue-600 self-end text-white" : "bg-zinc-800 self-start text-zinc-200"}`}>
+    {msg.role === "assistant" ? (
+      <MessageContent content={msg.content} />
+    ) : (
+      <div className="whitespace-pre-wrap">{msg.content}</div>
+    )}
+    {loading && i === messages.length - 1 && msg.role === "assistant" && !msg.content && (
+      <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
+    )}
+  </div>
+))}
               <div ref={messagesEndRef} />
             </div>
           )}
