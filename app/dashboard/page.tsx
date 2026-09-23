@@ -14,7 +14,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsSubPage, setSettingsSubPage] = useState<string | null>(null);
 
-  // Report form state
+  // Report form
   const [reportName, setReportName] = useState("");
   const [reportEmail, setReportEmail] = useState("");
   const [reportTitle, setReportTitle] = useState("");
@@ -30,15 +30,18 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
-  // Broadcast state
+  // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
 
   // Settings toggles
   const [setTimeZone, setSetTimeZone] = useState(true);
   const [kidsMode, setKidsMode] = useState(false);
   const [nsfwMode, setNsfwMode] = useState(false);
+  const [voiceMode, setVoiceMode] = useState("Ara");
+  const [theme, setTheme] = useState("System");
+  const [haptics, setHaptics] = useState(true);
+  const [responseStyle, setResponseStyle] = useState("Balanced");
 
-  // Detect country for currency
   useEffect(() => {
     const detectCountry = async () => {
       try {
@@ -50,7 +53,6 @@ export default function Dashboard() {
     detectCountry();
   }, []);
 
-  // Init: fetch user, chats, broadcast, track visitor
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -60,7 +62,6 @@ export default function Dashboard() {
         setReportEmail(user.email || "");
         setReportName(user.email?.split("@")[0] || "");
 
-        // Fetch chats
         const { data: chatsData } = await supabase
           .from("chats")
           .select("*")
@@ -74,7 +75,6 @@ export default function Dashboard() {
         }
       }
 
-      // Fetch active broadcast (any user can see)
       try {
         const { data: bc } = await supabase
           .from("broadcasts")
@@ -86,7 +86,6 @@ export default function Dashboard() {
         if (bc && bc[0]) setActiveBroadcast(bc[0]);
       } catch (e) {}
 
-      // Track visitor (silent, non-blocking)
       try {
         const geoRes = await fetch("https://ipapi.co/json/");
         const geo = await geoRes.json();
@@ -123,8 +122,6 @@ export default function Dashboard() {
 
   const sendMessage = async () => {
     if (!input.trim()) return;
-
-    // Auto-create a chat if none exists
     if (!activeChatId) {
       if (!user) return;
       const { data } = await supabase
@@ -139,7 +136,6 @@ export default function Dashboard() {
       }
       return;
     }
-
     await runSend(activeChatId);
   };
 
@@ -264,6 +260,15 @@ export default function Dashboard() {
     }
   };
 
+  const clearAllChats = async () => {
+    if (!user) return;
+    if (!confirm("Delete all your conversations? This cannot be undone.")) return;
+    await supabase.from("chats").delete().eq("user_id", user.id);
+    setChats([]);
+    setActiveChatId(null);
+    setMessages([]);
+  };
+
   const getPricing = () => {
     const baseNaira = 10000;
     const prices: { [key: string]: { symbol: string; price: number } } = {
@@ -287,10 +292,10 @@ export default function Dashboard() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const settingsButton = (label: string, icon: string, sub?: string) => (
+  const settingsRow = (label: string, icon: string, sub?: string, onClick?: () => void) => (
     <button
       key={label}
-      onClick={() => setSettingsSubPage(label)}
+      onClick={onClick || (() => setSettingsSubPage(label))}
       className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-left"
     >
       <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">{icon}</span>
@@ -298,12 +303,368 @@ export default function Dashboard() {
         <p className="text-sm font-medium">{label}</p>
         {sub && <p className="text-xs text-zinc-500">{sub}</p>}
       </div>
+      <svg className="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+      </svg>
     </button>
   );
 
+  const settingsToggle = (
+    label: string,
+    icon: string,
+    sub: string | undefined,
+    value: boolean,
+    setValue: (v: boolean) => void
+  ) => (
+    <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 rounded-xl">
+      <div className="flex items-center gap-3">
+        <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">{icon}</span>
+        <div>
+          <p className="text-sm font-medium">{label}</p>
+          {sub && <p className="text-xs text-zinc-500">{sub}</p>}
+        </div>
+      </div>
+      <button
+        onClick={() => setValue(!value)}
+        className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+          value ? "bg-white" : "bg-zinc-700"
+        }`}
+      >
+        <div
+          className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${
+            value ? "translate-x-6" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+
+  const renderSettingsSubPage = () => {
+    switch (settingsSubPage) {
+      case "Report a Problem":
+        return reportSubmitted ? (
+          <div className="text-center py-16">
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="font-semibold mb-2">Report submitted!</p>
+            <p className="text-sm text-zinc-500">Thank you for helping us improve Gyra.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">Your Name</label>
+              <input
+                type="text"
+                value={reportName}
+                onChange={(e) => setReportName(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">Your Email</label>
+              <input
+                type="email"
+                value={reportEmail}
+                onChange={(e) => setReportEmail(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">Title</label>
+              <input
+                type="text"
+                value={reportTitle}
+                onChange={(e) => setReportTitle(e.target.value)}
+                placeholder="Brief summary of the issue"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">Write your problem here</label>
+              <textarea
+                value={reportDescription}
+                onChange={(e) => setReportDescription(e.target.value)}
+                placeholder="Describe what went wrong in detail..."
+                rows={6}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
+              />
+            </div>
+            <button
+              onClick={submitReport}
+              disabled={reportSubmitting}
+              className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+            >
+              {reportSubmitting ? "Submitting..." : "Submit Report"}
+            </button>
+          </div>
+        );
+
+      case "Appearance":
+        return (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-zinc-400 mb-2">Choose how Gyra looks on your device.</p>
+            {["System", "Dark", "Light"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTheme(t)}
+                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
+                  theme === t ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                <span className="text-sm font-medium">{t}</span>
+                {theme === t && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+
+      case "Haptics":
+        return (
+          <div className="flex flex-col gap-3">
+            {settingsToggle(
+              "Enable Haptics",
+              "📳",
+              "Vibrate on button taps and messages.",
+              haptics,
+              setHaptics
+            )}
+          </div>
+        );
+
+      case "Widget":
+        return (
+          <div className="text-zinc-300">
+            <p className="text-sm mb-3">Home screen widgets are coming soon.</p>
+            <p className="text-xs text-zinc-500">
+              You will be able to add Gyra shortcuts to your home screen.
+            </p>
+          </div>
+        );
+
+      case "Advanced":
+        return (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-zinc-400 mb-2">Advanced settings for power users.</p>
+            {settingsToggle("Experimental Features", "⚡", "Enable beta features.", false, () => {})}
+            {settingsToggle("Developer Mode", "🛠️", "Show debug info in chat.", false, () => {})}
+          </div>
+        );
+
+      case "Customize Gyra":
+        return (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-zinc-400">Choose how Gyra responds to you.</p>
+            {["Balanced", "Concise", "Detailed", "Creative"].map((style) => (
+              <button
+                key={style}
+                onClick={() => setResponseStyle(style)}
+                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
+                  responseStyle === style
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                <span className="text-sm font-medium">{style}</span>
+                {responseStyle === style && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+
+      case "Connectors":
+        return (
+          <div className="text-zinc-300">
+            <p className="text-sm mb-3">Connect Gyra to your favorite tools.</p>
+            <div className="flex flex-col gap-2 mt-4">
+              {[
+                { name: "Google Drive", icon: "📁", desc: "Search and reference your Drive files." },
+                { name: "GitHub", icon: "🐙", desc: "Read repositories and pull requests." },
+                { name: "Notion", icon: "📝", desc: "Access your Notion workspace." },
+                { name: "Slack", icon: "💬", desc: "Send messages from Gyra to Slack." },
+              ].map((c) => (
+                <div key={c.name} className="flex items-center gap-3 px-4 py-3 bg-zinc-900 rounded-xl">
+                  <span className="text-xl">{c.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{c.name}</p>
+                    <p className="text-xs text-zinc-500">{c.desc}</p>
+                  </div>
+                  <button className="text-xs px-3 py-1.5 bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors">
+                    Connect
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      case "Skills":
+        return (
+          <div className="text-zinc-300">
+            <p className="text-sm mb-3">Skills extend what Gyra can do.</p>
+            <div className="flex flex-col gap-2 mt-4">
+              {[
+                { name: "Web Search", icon: "🔍", desc: "Search the web in real time." },
+                { name: "Code Interpreter", icon: "💻", desc: "Run code and analyze files." },
+                { name: "Image Generation", icon: "🖼️", desc: "Create images from prompts." },
+                { name: "Voice Mode", icon: "🎙️", desc: "Natural voice conversations." },
+              ].map((s) => (
+                <div key={s.name} className="flex items-center gap-3 px-4 py-3 bg-zinc-900 rounded-xl">
+                  <span className="text-xl">{s.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{s.name}</p>
+                    <p className="text-xs text-zinc-500">{s.desc}</p>
+                  </div>
+                  <span className="text-xs text-green-400">Enabled</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      case "Voice":
+        return (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-zinc-400 mb-2">Choose your voice assistant.</p>
+            {["Ara", "Nova", "Atlas", "Juno"].map((v) => (
+              <button
+                key={v}
+                onClick={() => setVoiceMode(v)}
+                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
+                  voiceMode === v
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                <span className="text-sm font-medium">{v}</span>
+                {voiceMode === v && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+
+      case "Time zone":
+        return (
+          <div className="text-zinc-300">
+            <p className="text-sm mb-3">Your time zone is set automatically.</p>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-xs text-zinc-500 mb-1">Detected</p>
+              <p className="text-sm font-mono">Africa/Lagos</p>
+            </div>
+          </div>
+        );
+
+      case "Shared Conversations":
+        return (
+          <div className="text-zinc-300">
+            <p className="text-sm mb-3">Share your conversations with a public link.</p>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center">
+              <p className="text-xs text-zinc-500 mb-2">No shared conversations yet.</p>
+              <p className="text-xs text-zinc-600">
+                Open a chat and tap the share icon to create a link.
+              </p>
+            </div>
+          </div>
+        );
+
+      case "Data Controls":
+        return (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-zinc-400">Manage your data and conversations.</p>
+            <button
+              onClick={clearAllChats}
+              className="w-full bg-red-600/20 border border-red-600/50 text-red-400 py-3 rounded-xl font-medium text-sm hover:bg-red-600/30 transition-colors"
+            >
+              Clear All Conversations
+            </button>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-xs text-zinc-500 mb-1">Data Location</p>
+              <p className="text-sm font-mono">West EU (Ireland)</p>
+            </div>
+          </div>
+        );
+
+      case "Open Source Licenses":
+        return (
+          <div className="text-zinc-300 text-sm flex flex-col gap-3">
+            <p className="mb-2">Gyra is built with amazing open-source software:</p>
+            <div className="flex flex-col gap-2">
+              {[
+                { name: "Next.js", license: "MIT" },
+                { name: "React", license: "MIT" },
+                { name: "Tailwind CSS", license: "MIT" },
+                { name: "Supabase", license: "Apache 2.0" },
+                { name: "Node Telegram Bot API", license: "MIT" },
+              ].map((lib) => (
+                <div key={lib.name} className="flex items-center justify-between px-3 py-2 bg-zinc-900 rounded-lg">
+                  <span className="text-sm">{lib.name}</span>
+                  <span className="text-xs text-zinc-500 font-mono">{lib.license}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      case "Terms of Use":
+        return (
+          <div className="text-zinc-300 text-sm leading-relaxed flex flex-col gap-4">
+            <p className="font-semibold">Terms of Use</p>
+            <p>
+              By using Gyra, you agree to use our AI responsibly. You must not use
+              Gyra for illegal activities, to generate harmful content, or to
+              infringe on others' rights.
+            </p>
+            <p>
+              Gyra is provided as a free service. We reserve the right to
+              rate-limit, suspend, or terminate access at any time.
+            </p>
+            <p className="text-xs text-zinc-500">
+              Last updated: September 2026
+            </p>
+          </div>
+        );
+
+      case "Privacy Policy":
+        return (
+          <div className="text-zinc-300 text-sm leading-relaxed flex flex-col gap-4">
+            <p className="font-semibold">Privacy Policy</p>
+            <p>
+              We collect only what we need to run Gyra: your email (from
+              Google sign-in), your chats, and anonymous usage data.
+            </p>
+            <p>
+              Your conversations are stored securely in Supabase and are never
+              shared with third parties. AI providers see the messages you send
+              (to generate responses), but they do not store them long-term.
+            </p>
+            <p className="text-xs text-zinc-500">
+              Last updated: September 2026
+            </p>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
-      {/* 📢 LIVE BROADCAST BANNER */}
+      {/* BROADCAST BANNER */}
       {activeBroadcast && (
         <div
           className={`absolute top-4 left-1/2 -translate-x-1/2 z-[90] max-w-md w-[calc(100%-2rem)] rounded-2xl border p-4 shadow-2xl ${
@@ -322,10 +683,7 @@ export default function Dashboard() {
               <p className="font-semibold text-sm">{activeBroadcast.title}</p>
               <p className="text-xs text-zinc-300 mt-1">{activeBroadcast.message}</p>
             </div>
-            <button
-              onClick={() => setActiveBroadcast(null)}
-              className="text-zinc-400 hover:text-white"
-            >
+            <button onClick={() => setActiveBroadcast(null)} className="text-zinc-400 hover:text-white">
               ✕
             </button>
           </div>
@@ -371,73 +729,8 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {settingsSubPage === "Report a Problem" ? (
-              reportSubmitted ? (
-                <div className="text-center py-16">
-                  <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center mb-4">
-                    <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <p className="font-semibold mb-2">Report submitted!</p>
-                  <p className="text-sm text-zinc-500">Thank you for helping us improve Gyra.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Your Name</label>
-                    <input
-                      type="text"
-                      value={reportName}
-                      onChange={(e) => setReportName(e.target.value)}
-                      placeholder="Oluwafemi Martin"
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Your Email</label>
-                    <input
-                      type="email"
-                      value={reportEmail}
-                      onChange={(e) => setReportEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Title</label>
-                    <input
-                      type="text"
-                      value={reportTitle}
-                      onChange={(e) => setReportTitle(e.target.value)}
-                      placeholder="Brief summary of the issue"
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Write your problem here</label>
-                    <textarea
-                      value={reportDescription}
-                      onChange={(e) => setReportDescription(e.target.value)}
-                      placeholder="Describe what went wrong in detail..."
-                      rows={6}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
-                    />
-                  </div>
-                  <button
-                    onClick={submitReport}
-                    disabled={reportSubmitting}
-                    className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50 mt-2"
-                  >
-                    {reportSubmitting ? "Submitting..." : "Submit Report"}
-                  </button>
-                </div>
-              )
-            ) : settingsSubPage ? (
-              <div className="text-zinc-300">
-                <p className="text-sm mb-4">{settingsSubPage} settings will be available soon.</p>
-                <p className="text-xs text-zinc-500">We are building the full functionality. Check back later.</p>
-              </div>
+            {settingsSubPage ? (
+              renderSettingsSubPage()
             ) : (
               <>
                 <div className="flex items-center gap-4 p-4 bg-zinc-900 rounded-2xl mb-4">
@@ -464,75 +757,43 @@ export default function Dashboard() {
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">App</p>
                 <div className="flex flex-col gap-1 mb-6">
-                  {settingsButton("Appearance", "🌗", "System")}
-                  {settingsButton("Haptics", "📳")}
-                  {settingsButton("Widget", "🧩")}
-                  {settingsButton("Advanced", "⚙️")}
+                  {settingsRow("Appearance", "🌗", theme)}
+                  {settingsRow("Haptics", "📳", haptics ? "On" : "Off")}
+                  {settingsRow("Widget", "🧩")}
+                  {settingsRow("Advanced", "⚙️")}
                 </div>
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Gyra</p>
                 <div className="flex flex-col gap-1 mb-6">
-                  {settingsButton("Customize Gyra", "🎨")}
-                  {settingsButton("Connectors", "🔗")}
-                  {settingsButton("Skills", "🧠")}
+                  {settingsRow("Customize Gyra", "🎨", responseStyle)}
+                  {settingsRow("Connectors", "🔗")}
+                  {settingsRow("Skills", "🧠")}
                 </div>
 
                 <div className="flex flex-col gap-1 mb-6">
-                  <button
-                    onClick={() => setKidsMode(!kidsMode)}
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-left"
-                  >
-                    <span className="w-6 h-6 flex items-center justify-center text-zinc-400">⭐</span>
-                    <p className="text-sm font-medium flex-1">Kids Mode</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${kidsMode ? "bg-blue-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>
-                      {kidsMode ? "ON" : "OFF"}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setNsfwMode(!nsfwMode)}
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-left"
-                  >
-                    <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-xs font-bold border border-zinc-600 rounded">18</span>
-                    <p className="text-sm font-medium flex-1">NSFW Preferences</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${nsfwMode ? "bg-blue-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>
-                      {nsfwMode ? "ON" : "OFF"}
-                    </span>
-                  </button>
+                  {settingsToggle("Kids Mode", "⭐", "Filter responses for younger users.", kidsMode, setKidsMode)}
+                  {settingsToggle("NSFW Preferences", "🔞", "Allow mature content.", nsfwMode, setNsfwMode)}
                 </div>
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Voice</p>
                 <div className="flex flex-col gap-1 mb-6">
-                  {settingsButton("Voice", "🎤", "Ara")}
+                  {settingsRow("Voice", "🎤", voiceMode)}
                 </div>
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Bot</p>
                 <div className="flex flex-col gap-1 mb-6">
-                  <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 flex items-center justify-center text-zinc-400">🕒</span>
-                      <div>
-                        <p className="text-sm font-medium">Set time zone automatically</p>
-                        <p className="text-xs text-zinc-500">Your Bot follows this device's time zone.</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSetTimeZone(!setTimeZone)}
-                      className={`w-12 h-6 rounded-full transition-colors relative ${setTimeZone ? "bg-white" : "bg-zinc-700"}`}
-                    >
-                      <div className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${setTimeZone ? "translate-x-6" : "translate-x-0.5"}`} />
-                    </button>
-                  </div>
-                  {settingsButton("Time zone", "🌍", "Africa/Lagos")}
+                  {settingsToggle("Set time zone automatically", "🕒", "Your Bot follows this device.", setTimeZone, setSetTimeZone)}
+                  {settingsRow("Time zone", "🌍", "Africa/Lagos")}
                 </div>
 
                 <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Data & Information</p>
                 <div className="flex flex-col gap-1 mb-6">
-                  {settingsButton("Shared Conversations", "🔗")}
-                  {settingsButton("Data Controls", "🗄️")}
-                  {settingsButton("Open Source Licenses", "📄")}
-                  {settingsButton("Terms of Use", "📋")}
-                  {settingsButton("Privacy Policy", "🔒")}
-                  {settingsButton("Report a Problem", "🚩")}
+                  {settingsRow("Shared Conversations", "🔗")}
+                  {settingsRow("Data Controls", "🗄️")}
+                  {settingsRow("Open Source Licenses", "📄")}
+                  {settingsRow("Terms of Use", "📋")}
+                  {settingsRow("Privacy Policy", "🔒")}
+                  {settingsRow("Report a Problem", "🚩")}
                 </div>
 
                 <button
