@@ -1,10 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+// Lazy-init: only create the client when a request arrives, not at build time
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel."
+    );
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
+}
 
 // ---------- PUBLIC DEVELOPER API ----------
 // Usage: POST https://gyra.ng/api/v1/chat
@@ -12,6 +22,8 @@ const supabaseAdmin = createClient(
 // Body: { "messages": [{"role":"user","content":"Hello Gyra"}] }
 export async function POST(req: Request) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
+
     // 1. Extract API key
     const authHeader = req.headers.get("authorization") || "";
     const apiKey = authHeader.replace("Bearer ", "").trim();
@@ -124,7 +136,7 @@ export async function POST(req: Request) {
       } catch (e) {}
     }
 
-    // --- Try Grok ---
+    // --- Try Grok (xAI) ---
     if (!aiReply && process.env.XAI_API_KEY) {
       try {
         const res = await fetch("https://api.x.ai/v1/chat/completions", {
