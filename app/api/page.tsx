@@ -27,14 +27,31 @@ export default function ApiPage() {
     setCreatedTeam(true);
   };
 
-  const generateKey = () => {
-    const randomPart = Array.from({ length: 32 }, () =>
-      "abcdefghijklmnopqrstuvwxyz0123456789".charAt(
-        Math.floor(Math.random() * 36)
-      )
-    ).join("");
-    setApiKey(`gyra_${randomPart}`);
-  };
+  const generateKey = async () => {
+  if (!user) return;
+  const randomPart = Array.from({ length: 32 }, () =>
+    "abcdefghijklmnopqrstuvwxyz0123456789".charAt(
+      Math.floor(Math.random() * 36)
+    )
+  ).join("");
+  const newKey = `gyra_${randomPart}`;
+
+  
+  const { error } = await supabase.from("api_keys").insert([
+    {
+      user_id: user.id,
+      key: newKey,
+      name: teamName || "default",
+    },
+  ]);
+
+  if (error) {
+    alert("Failed to generate key. Please try again.");
+    return;
+  }
+
+  setApiKey(newKey);
+};
 
   const copyKey = () => {
     if (apiKey) {
