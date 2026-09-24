@@ -148,8 +148,8 @@ export default function Home() {
             </div>
             <h2 className="text-xl font-bold mb-2">Check your email</h2>
             <p className="text-zinc-500 text-sm mb-8 leading-relaxed">
-              We sent a magic link to <span className="text-white">{email}</span>.
-              Click the link in that email to sign in.
+              We sent a sign in link to <span className="text-white">{email}</span>.
+              Click the link in that email to sign in to Gyra
             </p>
             <button
               onClick={() => {
@@ -173,7 +173,7 @@ export default function Home() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleEmailLogin()}
-              placeholder="you@example.com"
+              placeholder="victory@example.com"
               autoFocus
               className="w-full bg-zinc-900 border border-zinc-800 rounded-full px-5 py-4 text-sm text-white outline-none focus:border-blue-500 transition-colors"
             />
@@ -187,7 +187,7 @@ export default function Home() {
               disabled={sending}
               className="w-full bg-white text-black py-4 rounded-full font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
             >
-              {sending ? "Sending magic link..." : "Continue"}
+              {sending ? "Sending Email..." : "Continue"}
             </button>
 
             <button
