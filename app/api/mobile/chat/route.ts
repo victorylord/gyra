@@ -174,8 +174,8 @@ Natural English with contractions. When showing code, ALWAYS wrap it in triple-b
     if (process.env.GROQ_API_KEY) {
       try {
         const model = think
-          ? "deepseek-r1-distill-llama-70b"
-          : "llama-3.3-70b-versatile";
+            ? "openai/gpt-oss-120b"
+            : "llama-3.3-70b-versatile";
 
         const groqRes = await fetch(
           "https://api.groq.com/openai/v1/chat/completions",
