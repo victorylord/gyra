@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
+import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import Image from "next/image";
 
 // ============================================================
@@ -100,9 +101,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
-  // Think + Search
+  // Think + Search + Voice
   const [thinkMode, setThinkMode] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
 
   // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
@@ -112,7 +114,9 @@ export default function Dashboard() {
   // Load user + chats
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setUser(user);
 
       if (user) {
@@ -216,9 +220,12 @@ export default function Dashboard() {
 
     if (messages.length === 0) {
       const newTitle =
-        currentInput.substring(0, 25) + (currentInput.length > 25 ? "..." : "");
+        currentInput.substring(0, 25) +
+        (currentInput.length > 25 ? "..." : "");
       await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
-      setChats(chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
+      setChats(
+        chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
+      );
     }
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
@@ -258,7 +265,10 @@ export default function Dashboard() {
               fullReply += parsed.token;
               setMessages((prev) => {
                 const next = [...prev];
-                next[next.length - 1] = { role: "assistant", content: fullReply };
+                next[next.length - 1] = {
+                  role: "assistant",
+                  content: fullReply,
+                };
                 return next;
               });
             }
@@ -313,7 +323,9 @@ export default function Dashboard() {
     updatedChats.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return (
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
     });
     setChats(updatedChats);
     setActiveChatMenu(null);
@@ -338,8 +350,24 @@ export default function Dashboard() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Get the latest assistant message for voice output
+  const latestAssistantMessage =
+    messages.length > 0 && messages[messages.length - 1].role === "assistant"
+      ? messages[messages.length - 1].content
+      : "";
+
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
+      {/* Voice Output — speaks Gyra's replies when enabled */}
+      {voiceEnabled && latestAssistantMessage && (
+        <VoiceOutput
+          enabled={voiceEnabled}
+          text={latestAssistantMessage}
+          rate={1.05}
+          pitch={1}
+        />
+      )}
+
       {/* Broadcast Banner */}
       {activeBroadcast && (
         <div
@@ -357,7 +385,9 @@ export default function Dashboard() {
             <span className="text-xl">📢</span>
             <div className="flex-1">
               <p className="font-semibold text-sm">{activeBroadcast.title}</p>
-              <p className="text-xs text-zinc-300 mt-1">{activeBroadcast.message}</p>
+              <p className="text-xs text-zinc-300 mt-1">
+                {activeBroadcast.message}
+              </p>
             </div>
             <button
               onClick={() => setActiveBroadcast(null)}
@@ -407,8 +437,18 @@ export default function Dashboard() {
               onClick={() => setShowUpgrade(false)}
               className="text-zinc-400 hover:text-white"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
@@ -421,13 +461,24 @@ export default function Dashboard() {
             </p>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
               <h3 className="text-xl font-bold mb-4">
-                SuperGyra <span className="text-zinc-500 font-normal">Lite</span>
+                SuperGyra{" "}
+                <span className="text-zinc-500 font-normal">Lite</span>
               </h3>
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <button className="border-2 border-blue-500 bg-blue-500/10 rounded-xl p-4 text-left">
                   <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center mb-2">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                    <svg
+                      className="w-3 h-3 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                   </div>
                   <p className="text-lg font-bold">₦10,000.00</p>
@@ -496,18 +547,45 @@ export default function Dashboard() {
               onClick={() => setIsSidebarOpen(false)}
               className="text-zinc-500 hover:text-white md:hidden"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             </button>
           </div>
 
           <div className="flex flex-col gap-2 mb-4">
             {[
-              { label: "Automations", icon: "⚙️", action: () => alert("Automations coming soon!") },
-              { label: "Library", icon: "📚", action: () => alert("Library coming soon!") },
-              { label: "Projects", icon: "📁", action: () => alert("Projects coming soon!") },
-              { label: "Gyra Bot", icon: "🤖", badge: "New", action: () => window.open("https://t.me/Gyra_AiBot", "_blank") },
+              {
+                label: "Automations",
+                icon: "⚙️",
+                action: () => alert("Automations coming soon!"),
+              },
+              {
+                label: "Library",
+                icon: "📚",
+                action: () => alert("Library coming soon!"),
+              },
+              {
+                label: "Projects",
+                icon: "📁",
+                action: () => alert("Projects coming soon!"),
+              },
+              {
+                label: "Gyra Bot",
+                icon: "🤖",
+                badge: "New",
+                action: () => window.open("https://t.me/Gyra_AiBot", "_blank"),
+              },
             ].map((item) => (
               <button
                 key={item.label}
@@ -536,7 +614,9 @@ export default function Dashboard() {
           >
             <div className="flex-1">
               <p className="font-semibold text-sm">SuperGyra</p>
-              <p className="text-xs text-blue-200">Early access to new features</p>
+              <p className="text-xs text-blue-200">
+                Early access to new features
+              </p>
             </div>
             <span className="bg-white text-blue-600 px-3 py-1 rounded-full text-xs font-bold">
               Upgrade
@@ -549,7 +629,9 @@ export default function Dashboard() {
             </p>
             <div className="flex flex-col gap-1">
               {filteredChats.length === 0 ? (
-                <p className="text-xs text-zinc-500 px-2 italic">No chats yet.</p>
+                <p className="text-xs text-zinc-500 px-2 italic">
+                  No chats yet.
+                </p>
               ) : (
                 filteredChats.map((chat) => (
                   <div key={chat.id} className="relative group">
@@ -572,7 +654,9 @@ export default function Dashboard() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveChatMenu(activeChatMenu === chat.id ? null : chat.id);
+                        setActiveChatMenu(
+                          activeChatMenu === chat.id ? null : chat.id
+                        );
                       }}
                       className={`absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 ${
                         activeChatMenu === chat.id
@@ -580,7 +664,11 @@ export default function Dashboard() {
                           : "opacity-0 group-hover:opacity-100"
                       }`}
                     >
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <svg
+                        className="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
                         <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
                       </svg>
                     </button>
@@ -588,7 +676,10 @@ export default function Dashboard() {
                       <div className="absolute right-0 top-12 w-40 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-[100] p-1 flex flex-col">
                         <button
                           onClick={() => {
-                            window.open(`/dashboard?chat=${chat.id}`, "_blank");
+                            window.open(
+                              `/dashboard?chat=${chat.id}`,
+                              "_blank"
+                            );
                             setActiveChatMenu(null);
                           }}
                           className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 rounded-md text-left"
@@ -626,8 +717,18 @@ export default function Dashboard() {
         <div className="p-4 border-t border-zinc-800/50">
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center gap-2 bg-zinc-900 rounded-full px-4 py-2">
-              <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="w-4 h-4 text-zinc-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
               <input
                 type="text"
@@ -641,17 +742,42 @@ export default function Dashboard() {
               onClick={() => setShowSettings(true)}
               className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center transition-colors shrink-0"
             >
-              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <svg
+                className="w-5 h-5 text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
               </svg>
             </button>
             <button
               onClick={createNewChat}
               className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center transition-colors shrink-0"
             >
-              <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              <svg
+                className="w-5 h-5 text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
               </svg>
             </button>
           </div>
@@ -666,8 +792,18 @@ export default function Dashboard() {
               onClick={() => setIsSidebarOpen(true)}
               className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center md:hidden"
             >
-              <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+              <svg
+                className="w-5 h-5 text-zinc-300"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               </svg>
             </button>
             <div className="hidden md:block ml-2">
@@ -679,8 +815,18 @@ export default function Dashboard() {
             className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center"
             title="Developer API"
           >
-            <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            <svg
+              className="w-5 h-5 text-zinc-300"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+              />
             </svg>
           </button>
         </div>
@@ -729,7 +875,7 @@ export default function Dashboard() {
         </div>
 
         <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-3 flex-wrap">
             <button
               onClick={() => setThinkMode(!thinkMode)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
@@ -750,6 +896,10 @@ export default function Dashboard() {
             >
               🌐 Search
             </button>
+            <VoiceToggleButton
+              enabled={voiceEnabled}
+              onToggle={() => setVoiceEnabled(!voiceEnabled)}
+            />
           </div>
 
           <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-3 flex flex-col gap-2">
@@ -764,8 +914,18 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
-                  <svg className="w-4 h-4 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                  <svg
+                    className="w-4 h-4 text-zinc-300"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 4v16m8-8H4"
+                    />
                   </svg>
                 </button>
                 <button className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded-full text-xs text-zinc-300 transition-colors">
@@ -782,8 +942,18 @@ export default function Dashboard() {
                     disabled={loading}
                     className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="white" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7" />
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="white"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M5 12h14M12 5l7 7-7 7"
+                      />
                     </svg>
                   </button>
                 ) : (
