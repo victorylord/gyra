@@ -64,18 +64,15 @@ const INTELLIGENCE = [
 const CAPABILITIES = [
   {
     title: "A real AI platform.",
-    body:
-      "Gyra is a multimodal intelligence layer for people, developers, and the applications they build — not just another chatbot.",
+    body: "Gyra is a multimodal intelligence layer for people, developers, and the applications they build — not just another chatbot.",
   },
   {
     title: "Built to understand more than words.",
-    body:
-      "Conversation, vision, files, and voice — unified under one intelligence so context carries across everything.",
+    body: "Conversation, vision, files, and voice — unified under one intelligence so context carries across everything.",
   },
   {
     title: "Infrastructure you can build on.",
-    body:
-      "A clean, OpenAI-compatible API with free keys, structured responses, and production-grade reliability.",
+    body: "A clean, OpenAI-compatible API with free keys, structured responses, and production-grade reliability.",
   },
 ];
 
@@ -125,7 +122,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Ambient background layers */}
+      {/* Ambient background */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/8 rounded-full blur-[160px]" />
         <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-blue-900/10 rounded-full blur-[160px]" />
@@ -248,7 +245,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* The Gyra Ecosystem */}
+      {/* Ecosystem */}
       <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24 border-t border-white/5">
         <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
@@ -297,7 +294,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Gyra Intelligence */}
+      {/* Intelligence */}
       <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24 border-t border-white/5">
         <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">

@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import Logo from "../components/Logo";
 
@@ -50,12 +48,10 @@ const TYPE_STYLE = {
 export default function ChangelogPage() {
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* Ambient */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[160px]" />
       </div>
 
-      {/* Nav */}
       <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-6 border-b border-white/5">
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
@@ -92,7 +88,6 @@ export default function ChangelogPage() {
         <div className="flex flex-col gap-16">
           {RELEASES.map((release) => (
             <div key={release.version} className="relative">
-              {/* Vertical line */}
               <div className="absolute left-0 top-2 bottom-0 w-px bg-gradient-to-b from-blue-500/40 to-transparent hidden md:block" />
 
               <div className="md:pl-8">
@@ -147,7 +142,7 @@ export default function ChangelogPage() {
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors"
             >
-              t.me/GenviaNews
+              @Gyra_AiBot
             </a>{" "}
             for updates
           </p>

@@ -69,7 +69,9 @@ function StatusPill({ status }: { status: Service["status"] }) {
     <div
       className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${styles.bg} ${styles.border} border ${styles.text}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${styles.dot} animate-pulse`}></span>
+      <span
+        className={`w-1.5 h-1.5 rounded-full ${styles.dot} animate-pulse`}
+      ></span>
       {styles.label}
     </div>
   );
