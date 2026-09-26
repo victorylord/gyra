@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Gyra — Intelligent. Simplified.",
+  title: "Gyra — Intelligence, Simplified.",
   description:
-    "Gyra is an advanced AI assistant created by Genvia AI Company, owned by Victory Lord. Chat, create, and build with the most intelligent and simplified AI platform.",
+    "Gyra is a multimodal AI platform for people, developers, and the applications they build. Chat, vision, files, voice, and developer APIs — unified under one intelligence.",
   applicationName: "Gyra",
   authors: [{ name: "Victory Lord" }],
   creator: "Victory Lord",
