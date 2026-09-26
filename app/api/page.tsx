@@ -163,6 +163,12 @@ export default function ApiPage() {
           <span className="text-lg font-bold tracking-tighter">Gyra API</span>
         </a>
         <div className="flex items-center gap-4 text-sm">
+          <a
+  href="/playground"
+  className="text-zinc-400 hover:text-white transition-colors hidden md:inline"
+>
+  Playground
+</a>
           <a href="/docs" className="text-zinc-400 hover:text-white transition-colors hidden md:inline">
             Docs
           </a>
