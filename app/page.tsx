@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "./supabase";
-import Logo from "./components/Logo";
+import Logo from "./Logo";
 
 const TAGLINE = "Intelligence, Simplified.";
 
