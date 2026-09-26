@@ -1,154 +1,184 @@
-"use client";
+import Link from "next/link";
+import Logo from "../components/Logo";
 
-import { useEffect, useState } from "react";
-
-type LogoProps = {
-  size?: number;
-  showWordmark?: boolean;
-  animated?: boolean;
+type Service = {
+  name: string;
+  description: string;
+  status: "operational" | "degraded" | "outage";
 };
 
-export default function Logo({
-  size = 120,
-  showWordmark = false,
-  animated = true,
-}: LogoProps) {
-  const [glowPhase, setGlowPhase] = useState(0);
+const SERVICES: Service[] = [
+  {
+    name: "Gyra AI",
+    description: "Chat, vision, and conversation services",
+    status: "operational",
+  },
+  {
+    name: "Gyra API",
+    description: "Public developer API at api.gyra.ng",
+    status: "operational",
+  },
+  {
+    name: "Authentication",
+    description: "Google sign-in and session management",
+    status: "operational",
+  },
+  {
+    name: "File Processing",
+    description: "Image, document, and attachment handling",
+    status: "operational",
+  },
+  {
+    name: "Voice",
+    description: "Text-to-speech and speech recognition",
+    status: "operational",
+  },
+  {
+    name: "Web Search",
+    description: "Live web search via Tavily",
+    status: "operational",
+  },
+];
 
-  useEffect(() => {
-    if (!animated) return;
-    const interval = setInterval(() => {
-      setGlowPhase((p) => (p + 1) % 3);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, [animated]);
-
-  const gradientId = `gyra-gradient-${size}`;
-  const glowId = `gyra-glow-${size}`;
+function StatusPill({ status }: { status: Service["status"] }) {
+  const styles = {
+    operational: {
+      bg: "bg-green-500/10",
+      border: "border-green-500/30",
+      text: "text-green-400",
+      dot: "bg-green-500",
+      label: "Operational",
+    },
+    degraded: {
+      bg: "bg-yellow-500/10",
+      border: "border-yellow-500/30",
+      text: "text-yellow-400",
+      dot: "bg-yellow-500",
+      label: "Degraded",
+    },
+    outage: {
+      bg: "bg-red-500/10",
+      border: "border-red-500/30",
+      text: "text-red-400",
+      dot: "bg-red-500",
+      label: "Outage",
+    },
+  }[status];
 
   return (
-    <div className="flex flex-col items-center">
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 200 200"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        style={{
-          filter: animated
-            ? `drop-shadow(0 0 ${20 + glowPhase * 8}px rgba(59, 130, 246, ${
-                0.3 + glowPhase * 0.15
-              }))`
-            : "drop-shadow(0 0 20px rgba(59, 130, 246, 0.3))",
-          transition: "filter 2s ease-in-out",
-        }}
-      >
-        <defs>
-          {/* Metallic gradient for the G frame */}
-          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#e5e7eb" />
-            <stop offset="30%" stopColor="#9ca3af" />
-            <stop offset="50%" stopColor="#f3f4f6" />
-            <stop offset="70%" stopColor="#6b7280" />
-            <stop offset="100%" stopColor="#1f2937" />
-          </linearGradient>
-
-          {/* Blue glow for the inner ring */}
-          <radialGradient id={glowId} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.9" />
-            <stop offset="70%" stopColor="#1e40af" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#1e3a8a" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-
-        {/* Outer G ring — segmented metallic frame */}
-        <path
-          d="M 100 20 A 80 80 0 0 1 175 65 L 130 90 L 100 55 L 60 80 A 45 45 0 1 0 100 145 L 100 118 L 145 118 L 145 145 A 80 80 0 0 1 100 20 Z"
-          fill={`url(#${gradientId})`}
-          stroke="#1f2937"
-          strokeWidth="0.5"
-        />
-
-        {/* Segmentation lines on the outer G */}
-        <g stroke="#0f172a" strokeWidth="0.8" opacity="0.7">
-          <line x1="55" y1="80" x2="80" y2="55" />
-          <line x1="175" y1="65" x2="150" y2="85" />
-          <line x1="30" y1="110" x2="55" y2="95" />
-          <line x1="100" y1="145" x2="100" y2="165" />
-          <line x1="145" y1="118" x2="165" y2="130" />
-          <line x1="170" y1="140" x2="155" y2="155" />
-        </g>
-
-        {/* Inner neural network area */}
-        <g>
-          {/* Inner dark circle */}
-          <circle cx="100" cy="100" r="48" fill="#050810" />
-
-          {/* Blue glow ring */}
-          <circle
-            cx="100"
-            cy="100"
-            r="48"
-            fill="none"
-            stroke="#3b82f6"
-            strokeWidth="2"
-            opacity="0.9"
-            style={{
-              filter: animated
-                ? `drop-shadow(0 0 ${8 + glowPhase * 4}px rgba(59, 130, 246, 0.9))`
-                : "drop-shadow(0 0 8px rgba(59, 130, 246, 0.9))",
-              transition: "filter 2s ease-in-out",
-            }}
-          />
-
-          {/* Neural network nodes and edges */}
-          <g stroke="#60a5fa" strokeWidth="0.5" opacity="0.7">
-            {/* Edges */}
-            <line x1="70" y1="90" x2="90" y2="75" />
-            <line x1="90" y1="75" x2="115" y2="70" />
-            <line x1="115" y1="70" x2="130" y2="88" />
-            <line x1="70" y1="90" x2="85" y2="105" />
-            <line x1="85" y1="105" x2="100" y2="95" />
-            <line x1="100" y1="95" x2="115" y2="70" />
-            <line x1="100" y1="95" x2="130" y2="88" />
-            <line x1="100" y1="95" x2="115" y2="115" />
-            <line x1="130" y1="88" x2="125" y2="110" />
-            <line x1="125" y1="110" x2="115" y2="115" />
-            <line x1="85" y1="105" x2="100" y2="125" />
-            <line x1="100" y1="125" x2="115" y2="115" />
-            <line x1="75" y1="115" x2="85" y2="105" />
-            <line x1="75" y1="115" x2="100" y2="125" />
-          </g>
-
-          {/* Nodes */}
-          <g fill="#93c5fd">
-            <circle cx="70" cy="90" r="2" />
-            <circle cx="90" cy="75" r="2.5" />
-            <circle cx="115" cy="70" r="2" />
-            <circle cx="130" cy="88" r="2.5" />
-            <circle cx="85" cy="105" r="2" />
-            <circle cx="100" cy="95" r="3" fill="#dbeafe" />
-            <circle cx="125" cy="110" r="2" />
-            <circle cx="115" cy="115" r="2.5" />
-            <circle cx="100" cy="125" r="2" />
-            <circle cx="75" cy="115" r="2" />
-          </g>
-        </g>
-      </svg>
-
-      {showWordmark && (
-        <div
-          className="mt-6 text-white tracking-widest font-bold"
-          style={{
-            fontSize: size * 0.28,
-            letterSpacing: "0.15em",
-            fontFamily:
-              "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-          }}
-        >
-          GYRA
-        </div>
-      )}
+    <div
+      className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${styles.bg} ${styles.border} border ${styles.text}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${styles.dot} animate-pulse`}></span>
+      {styles.label}
     </div>
+  );
+}
+
+export default function StatusPage() {
+  const allOperational = SERVICES.every((s) => s.status === "operational");
+
+  return (
+    <main className="min-h-screen bg-black text-white">
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[160px]" />
+      </div>
+
+      <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-6 border-b border-white/5">
+        <Link href="/" className="flex items-center gap-3">
+          <Logo size={28} animated={false} />
+          <span className="font-bold tracking-widest text-sm">GYRA</span>
+          <span className="text-zinc-600 text-xs tracking-widest">STATUS</span>
+        </Link>
+        <div className="flex items-center gap-6 text-sm text-zinc-400">
+          <Link href="/changelog" className="hover:text-white transition-colors">
+            Changelog
+          </Link>
+          <Link href="/" className="hover:text-white transition-colors">
+            ← Back to Gyra
+          </Link>
+        </div>
+      </nav>
+
+      <div className="relative z-10 max-w-4xl mx-auto px-6 md:px-12 py-16">
+        <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
+          System Status
+        </p>
+        <h1 className="text-4xl md:text-5xl font-bold tracking-tighter mb-4">
+          All systems operational.
+        </h1>
+        <p className="text-zinc-400 mb-2">
+          Live status of Gyra&apos;s infrastructure and services.
+        </p>
+
+        <div className="mt-10 bg-green-500/5 border border-green-500/20 rounded-2xl p-6">
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            <p className="text-green-400 font-medium">
+              {allOperational
+                ? "All systems are running normally."
+                : "Some systems are experiencing issues."}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-8 bg-zinc-950/60 border border-zinc-800/60 rounded-2xl overflow-hidden">
+          {SERVICES.map((s, i) => (
+            <div
+              key={s.name}
+              className={`flex items-center justify-between p-6 ${
+                i !== SERVICES.length - 1 ? "border-b border-zinc-800/60" : ""
+              }`}
+            >
+              <div>
+                <p className="font-medium">{s.name}</p>
+                <p className="text-xs text-zinc-500 mt-1">{s.description}</p>
+              </div>
+              <StatusPill status={s.status} />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-12">
+          <h2 className="text-xl font-bold tracking-tight mb-6">
+            30-day uptime
+          </h2>
+          <div className="bg-zinc-950/60 border border-zinc-800/60 rounded-2xl p-6">
+            <div className="flex items-end gap-1 h-16">
+              {Array.from({ length: 30 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-1 bg-green-500/60 rounded-sm"
+                  style={{ height: "100%" }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-4 text-xs text-zinc-500">
+              <span>30 days ago</span>
+              <span className="text-green-400 font-mono">99.98% uptime</span>
+              <span>Today</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-12">
+          <h2 className="text-xl font-bold tracking-tight mb-6">
+            Incident history
+          </h2>
+          <div className="bg-zinc-950/60 border border-zinc-800/60 rounded-2xl p-8 text-center">
+            <p className="text-zinc-500 text-sm">
+              No incidents reported in the last 30 days.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-16 pt-8 border-t border-white/5 flex items-center justify-between text-xs text-zinc-600">
+          <p>Need help? Contact support@gyra.ng</p>
+          <Link href="/" className="hover:text-white transition-colors">
+            gyra.ng
+          </Link>
+        </div>
+      </div>
+    </main>
   );
 }
