@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import SettingsPanel from "../components/SettingsPanel";
 import Image from "next/image";
 
 // ============================================================
@@ -90,7 +91,6 @@ export default function Dashboard() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [settingsSubPage, setSettingsSubPage] = useState<string | null>(null);
 
   // Chat state
   const [chats, setChats] = useState<any[]>([]);
@@ -106,22 +106,6 @@ export default function Dashboard() {
 
   // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
-
-  // Settings
-  const [setTimeZone, setSetTimeZone] = useState(true);
-  const [kidsMode, setKidsMode] = useState(false);
-  const [nsfwMode, setNsfwMode] = useState(false);
-  const [voiceMode, setVoiceMode] = useState("Ara");
-  const [theme, setTheme] = useState("System");
-  const [language, setLanguage] = useState("English");
-  const [haptics, setHaptics] = useState(true);
-  const [responseStyle, setResponseStyle] = useState("Balanced");
-  const [gyraStyle, setGyraStyle] = useState("Default");
-  const [gyraCustomPrompt, setGyraCustomPrompt] = useState("");
-  const [typeheads, setTypeheads] = useState(true);
-  const [replySuggestions, setReplySuggestions] = useState(true);
-  const [thinkHarder, setThinkHarder] = useState(true);
-  const [shakeToReport, setShakeToReport] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -239,32 +223,12 @@ export default function Dashboard() {
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
 
-    // Compose the message with style + custom prompt + language prefix
-    let stylePrefix = "";
-    if (gyraStyle && gyraStyle !== "Default") {
-      stylePrefix += `Response style: ${gyraStyle}. `;
-    }
-    if (gyraCustomPrompt?.trim()) {
-      stylePrefix += `Custom instructions: ${gyraCustomPrompt.trim()}. `;
-    }
-    if (language && language !== "English") {
-      stylePrefix += `Always respond in ${language}. `;
-    }
-
-    const apiMessages = updatedMessages.map((m) => ({
-      role: m.role,
-      content:
-        stylePrefix && m === updatedMessages[updatedMessages.length - 1]
-          ? `[${stylePrefix.trim()}]\n\n${m.content}`
-          : m.content,
-    }));
-
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: apiMessages,
+          messages: updatedMessages,
           think: thinkMode,
           search: searchMode,
         }),
@@ -374,267 +338,6 @@ export default function Dashboard() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const settingsRow = (label: string, icon: string, sub?: string, key?: string) => (
-    <button
-      key={label}
-      onClick={() => key && setSettingsSubPage(key)}
-      className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-left"
-    >
-      <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">
-        {icon}
-      </span>
-      <div className="flex-1">
-        <p className="text-sm font-medium">{label}</p>
-        {sub && <p className="text-xs text-zinc-500">{sub}</p>}
-      </div>
-      <svg
-        className="w-4 h-4 text-zinc-600"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          d="M9 5l7 7-7 7"
-        />
-      </svg>
-    </button>
-  );
-
-  const settingsToggle = (
-    label: string,
-    icon: string,
-    sub: string | undefined,
-    value: boolean,
-    setValue: (v: boolean) => void
-  ) => (
-    <div
-      key={label}
-      className="flex items-center justify-between px-4 py-3 bg-zinc-900 rounded-xl"
-    >
-      <div className="flex items-center gap-3">
-        <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">
-          {icon}
-        </span>
-        <div>
-          <p className="text-sm font-medium">{label}</p>
-          {sub && <p className="text-xs text-zinc-500">{sub}</p>}
-        </div>
-      </div>
-      <button
-        onClick={() => setValue(!value)}
-        className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
-          value ? "bg-white" : "bg-zinc-700"
-        }`}
-      >
-        <div
-          className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${
-            value ? "translate-x-6" : "translate-x-0.5"
-          }`}
-        />
-      </button>
-    </div>
-  );
-
-  // ============================================================
-  // RENDER SETTINGS SUB-PAGE
-  // ============================================================
-  const renderSettingsSubPage = () => {
-    switch (settingsSubPage) {
-      case "Appearance":
-        return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-zinc-400 mb-2">
-              Choose how Gyra looks on your device.
-            </p>
-            {["System", "Dark", "Light"].map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  theme === t
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
-                <span className="text-sm font-medium">{t}</span>
-                {theme === t && <span className="text-lg">✓</span>}
-              </button>
-            ))}
-          </div>
-        );
-
-      case "Haptics":
-        return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-zinc-400 mb-2">Vibrate on interactions.</p>
-            {settingsToggle("Enable Haptics", "📳", "Master toggle", haptics, setHaptics)}
-          </div>
-        );
-
-      case "Notifications":
-        return (
-          <div className="flex flex-col items-center py-16 text-center">
-            <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mb-4">
-              <span className="text-2xl">🔔</span>
-            </div>
-            <p className="font-semibold mb-2">Notifications</p>
-            <p className="text-sm text-zinc-500 max-w-xs leading-relaxed">
-              Get notified when Gyra finishes thinking on long-running tasks.
-            </p>
-            <span className="mt-6 text-[10px] tracking-wider uppercase px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              Coming in next update
-            </span>
-          </div>
-        );
-
-      case "Advanced":
-        return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-zinc-400 mb-2">Power user options.</p>
-            {settingsToggle("Typeheads", "⌨️", "Show completions as you type", typeheads, setTypeheads)}
-            {settingsToggle("Reply suggestions", "💡", "Show follow-up replies", replySuggestions, setReplySuggestions)}
-            {settingsToggle("Think harder", "🧠", "Re-answer with more reasoning", thinkHarder, setThinkHarder)}
-            {settingsToggle("Shake to report", "🚩", "Shake device to report a bug", shakeToReport, setShakeToReport)}
-          </div>
-        );
-
-      case "Widget":
-        return (
-          <div className="text-zinc-300 flex flex-col items-center py-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mb-4">
-              <span className="text-2xl">🧩</span>
-            </div>
-            <p className="font-semibold mb-2">Home Screen Widget</p>
-            <p className="text-sm text-zinc-500 max-w-xs leading-relaxed mb-6">
-              Quick access to Gyra from your home screen.
-            </p>
-            <div className="text-xs text-zinc-400 text-left bg-zinc-900 rounded-xl p-4 max-w-xs">
-              <p className="mb-2">1. Long-press empty space</p>
-              <p className="mb-2">2. Tap &quot;Widgets&quot;</p>
-              <p className="mb-2">3. Find &quot;Gyra&quot;</p>
-              <p className="mb-2">4. Choose a size</p>
-              <p>5. Tap &quot;Add Widget&quot;</p>
-            </div>
-          </div>
-        );
-
-      case "Customize Gyra":
-        return (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-zinc-400">Choose how Gyra responds.</p>
-            {["Default", "Balanced", "Concise", "Detailed", "Creative", "Professional"].map((s) => (
-              <button
-                key={s}
-                onClick={() => setGyraStyle(s)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  gyraStyle === s
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
-                <span className="text-sm font-medium">{s}</span>
-                {gyraStyle === s && <span className="text-lg">✓</span>}
-              </button>
-            ))}
-            <p className="text-sm text-zinc-400 mt-4">Custom instructions:</p>
-            <textarea
-              value={gyraCustomPrompt}
-              onChange={(e) => setGyraCustomPrompt(e.target.value)}
-              rows={4}
-              placeholder="Tell Gyra how to respond..."
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
-            />
-            <p className="text-xs text-zinc-500">
-              Changes apply to new messages.
-            </p>
-          </div>
-        );
-
-      case "Language":
-        return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-zinc-400 mb-2">
-              Gyra will respond in your selected language.
-            </p>
-            {[
-              "English", "Español", "Français", "Deutsch", "Português", "Italiano",
-              "العربية", "हिन्दी", "日本語", "한국어", "中文", "Русский",
-              "Yoruba", "Igbo", "Hausa", "Swahili", "Zulu", "Afrikaans",
-            ].map((lang) => (
-              <button
-                key={lang}
-                onClick={() => setLanguage(lang)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  language === lang
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
-                <span className="text-sm font-medium">{lang}</span>
-                {language === lang && <span className="text-lg">✓</span>}
-              </button>
-            ))}
-          </div>
-        );
-
-      case "Voice":
-        return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-zinc-400 mb-2">Choose your voice.</p>
-            {["Ara", "Nova", "Atlas", "Juno", "Sage"].map((v) => (
-              <button
-                key={v}
-                onClick={() => setVoiceMode(v)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
-                  voiceMode === v
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                }`}
-              >
-                <span className="text-sm font-medium">{v}</span>
-                {voiceMode === v && <span className="text-lg">✓</span>}
-              </button>
-            ))}
-          </div>
-        );
-
-      case "Report a Problem":
-        return (
-          <div className="flex flex-col items-center py-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mb-4">
-              <span className="text-2xl">🚩</span>
-            </div>
-            <p className="font-semibold mb-2">Report a problem</p>
-            <p className="text-sm text-zinc-500 max-w-xs leading-relaxed mb-6">
-              Found a bug? Let us know.
-            </p>
-            <div className="flex flex-col gap-3 w-full max-w-xs">
-              <a
-                href="mailto:support@gyra.ng?subject=Bug%20Report"
-                className="bg-white text-black py-3 rounded-full font-medium text-sm hover:bg-zinc-200 transition-colors"
-              >
-                Email support@gyra.ng
-              </a>
-              <a
-                href="https://t.me/Gyra_AiBot"
-                target="_blank"
-                rel="noreferrer"
-                className="bg-zinc-900 border border-zinc-800 py-3 rounded-full font-medium text-sm hover:bg-zinc-800 transition-colors"
-              >
-                Telegram @Gyra_AiBot
-              </a>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
-
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
       {/* Broadcast Banner */}
@@ -689,147 +392,11 @@ export default function Dashboard() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="absolute inset-0 bg-black z-[70] flex flex-col overflow-hidden">
-          <div className="flex items-center gap-4 p-4 border-b border-zinc-800/50 shrink-0">
-            {settingsSubPage ? (
-              <button
-                onClick={() => setSettingsSubPage(null)}
-                className="text-zinc-400 hover:text-white"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowSettings(false)}
-                className="text-zinc-400 hover:text-white"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            <h2 className="text-xl font-bold">{settingsSubPage || "Settings"}</h2>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4">
-            {settingsSubPage ? (
-              renderSettingsSubPage()
-            ) : (
-              <>
-                <div className="flex items-center gap-4 p-4 bg-zinc-900 rounded-2xl mb-4">
-                  <div className="w-14 h-14 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center text-xl font-bold">
-                    {user ? user.email[0].toUpperCase() : "?"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold truncate">
-                      {user ? user.email.split("@")[0] : "Loading..."}
-                    </p>
-                    <p className="text-sm text-zinc-500 truncate">{user?.email}</p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setShowSettings(false);
-                    setShowUpgrade(true);
-                  }}
-                  className="w-full flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 rounded-2xl p-4 mb-6"
-                >
-                  <Image src="/logo.jpeg" alt="Gyra" width={32} height={32} className="rounded-full" />
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-sm">SuperGyra</p>
-                    <p className="text-xs text-zinc-500">Premium Ask, Voice, Imagine...</p>
-                  </div>
-                  <span className="bg-blue-600 text-white px-4 py-1.5 rounded-full text-xs font-bold">
-                    Upgrade
-                  </span>
-                </button>
-
-                <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">App</p>
-                <div className="flex flex-col gap-1 mb-6">
-                  {settingsRow("Appearance", "🌗", theme, "Appearance")}
-                  {settingsRow("Haptics", "📳", haptics ? "On" : "Off", "Haptics")}
-                  {settingsRow("Notifications", "🔔", "Coming soon", "Notifications")}
-                  {settingsRow("Widget", "🧩", undefined, "Widget")}
-                  {settingsRow("Advanced", "⚙️", undefined, "Advanced")}
-                </div>
-
-                <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Gyra</p>
-                <div className="flex flex-col gap-1 mb-6">
-                  {settingsRow("Customize Gyra", "🎨", gyraStyle, "Customize Gyra")}
-                  {settingsRow("Language", "🌐", language, "Language")}
-                  {settingsRow("Voice", "🎤", voiceMode, "Voice")}
-                </div>
-
-                <div className="flex flex-col gap-1 mb-6">
-                  {settingsToggle("Kids Mode", "⭐", "Filter responses", kidsMode, setKidsMode)}
-                  {settingsToggle("NSFW Preferences", "🔞", "Allow mature content", nsfwMode, setNsfwMode)}
-                </div>
-
-                <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">Bot</p>
-                <div className="flex flex-col gap-1 mb-6">
-                  {settingsToggle(
-                    "Set time zone automatically",
-                    "🕒",
-                    "Follow this device",
-                    setTimeZone,
-                    setSetTimeZone
-                  )}
-                  {settingsRow("Time zone", "🌍", "Africa/Lagos")}
-                </div>
-
-                <p className="text-sm text-zinc-500 font-semibold mb-2 px-2">
-                  Data & Information
-                </p>
-                <div className="flex flex-col gap-1 mb-6">
-                  <a
-                    href="/terms"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors"
-                  >
-                    <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">
-                      📋
-                    </span>
-                    <p className="text-sm font-medium flex-1">Terms of Use</p>
-                    <svg className="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </a>
-                  <a
-                    href="/privacy"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors"
-                  >
-                    <span className="w-6 h-6 flex items-center justify-center text-zinc-400 text-sm">
-                      🔒
-                    </span>
-                    <p className="text-sm font-medium flex-1">Privacy Policy</p>
-                    <svg className="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </a>
-                  {settingsRow("Report a Problem", "🚩", undefined, "Report a Problem")}
-                </div>
-
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-3 w-full px-4 py-3 bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors text-red-500"
-                >
-                  <span className="w-6 h-6 flex items-center justify-center">🚪</span>
-                  <p className="text-sm font-medium">Sign out</p>
-                </button>
-
-                <p className="text-center text-xs text-zinc-600 mt-6 mb-4">
-                  Gyra 1.0.0 · Made by Victory Lord
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+        <SettingsPanel
+          user={user}
+          onClose={() => setShowSettings(false)}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* Upgrade Modal */}
@@ -852,18 +419,6 @@ export default function Dashboard() {
             <p className="text-zinc-400 text-center text-sm mb-6">
               Choose the right plan for you
             </p>
-            <div className="flex items-center gap-2 bg-zinc-900 rounded-full p-1 mb-6 overflow-x-auto">
-              {["Lite", "SuperGyra", "Plus", "Heavy"].map((tier, i) => (
-                <button
-                  key={tier}
-                  className={`flex-1 py-2 px-4 rounded-full text-sm font-medium whitespace-nowrap ${
-                    i === 0 ? "bg-zinc-800 text-white" : "text-zinc-500"
-                  }`}
-                >
-                  {tier}
-                </button>
-              ))}
-            </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
               <h3 className="text-xl font-bold mb-4">
                 SuperGyra <span className="text-zinc-500 font-normal">Lite</span>
@@ -909,10 +464,6 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            <p className="text-center text-xs text-zinc-500">
-              <a href="#" className="hover:text-white">Terms</a> |{" "}
-              <a href="#" className="hover:text-white">Privacy Policy</a>
-            </p>
           </div>
         </div>
       )}
@@ -1178,23 +729,6 @@ export default function Dashboard() {
         </div>
 
         <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
-          {messages.length === 0 && (
-            <div className="flex gap-2 mb-3 overflow-x-auto">
-              <button
-                onClick={() => setShowUpgrade(true)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors"
-              >
-                ⚡ Try SuperGyra
-              </button>
-              <button
-                onClick={() => alert("Build apps coming soon!")}
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border border-zinc-800"
-              >
-                🛠 Build apps and sites
-              </button>
-            </div>
-          )}
-
           <div className="flex gap-2 mb-3">
             <button
               onClick={() => setThinkMode(!thinkMode)}
