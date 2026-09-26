@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import Logo from "../Logo";
 import { supabase } from "../supabase";
 
 type ApiKey = {
@@ -14,32 +16,40 @@ type ApiKey = {
   created_at: string;
 };
 
+type UsageRecord = {
+  id: string;
+  api_key_id: string;
+  endpoint: string;
+  status: number;
+  latency_ms: number;
+  created_at: string;
+};
+
 export default function ApiPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Onboarding state
+  // Onboarding
   const [teamName, setTeamName] = useState("");
   const [teamType, setTeamType] = useState("Engineer");
   const [onboarded, setOnboarded] = useState(false);
 
-  // Key state
+  // Keys
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [newlyGeneratedKey, setNewlyGeneratedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-
-  // Revoke confirmation
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
+
+  // Analytics
+  const [usage, setUsage] = useState<UsageRecord[]>([]);
+  const [activeKeyStats, setActiveKeyStats] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
       if (user) {
-        // If they have keys, they're onboarded
         const { data } = await supabase
           .from("api_keys")
           .select("*")
@@ -48,7 +58,17 @@ export default function ApiPage() {
         if (data && data.length > 0) {
           setKeys(data);
           setOnboarded(true);
+          setActiveKeyStats(data[0].id);
         }
+
+        // Load usage records (last 30 days)
+        const { data: usageData } = await supabase
+          .from("api_usage")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(500);
+        if (usageData) setUsage(usageData);
       }
       setLoading(false);
     };
@@ -111,38 +131,64 @@ export default function ApiPage() {
       .update({ active: false, revoked: true, revoked_at: new Date().toISOString() })
       .eq("id", id);
     if (!error) {
-      setKeys(
-        keys.map((k) =>
-          k.id === id ? { ...k, active: false, revoked: true } : k
-        )
-      );
+      setKeys(keys.map((k) => (k.id === id ? { ...k, active: false, revoked: true } : k)));
     }
     setRevokeTarget(null);
   };
 
   const deleteKey = async (id: string) => {
-    if (!confirm("Permanently delete this key? This cannot be undone.")) return;
+    if (!confirm("Permanently delete this key?")) return;
     const { error } = await supabase.from("api_keys").delete().eq("id", id);
-    if (!error) {
-      setKeys(keys.filter((k) => k.id !== id));
-    }
+    if (!error) setKeys(keys.filter((k) => k.id !== id));
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "Never";
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+  const formatDate = (d: string | null) => {
+    if (!d) return "Never";
+    const date = new Date(d);
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
     return date.toLocaleDateString();
   };
+
+  // ============================================================
+  // ANALYTICS CALCULATIONS
+  // ============================================================
+  const usageForActiveKey = activeKeyStats
+    ? usage.filter((u) => u.api_key_id === activeKeyStats)
+    : usage;
+
+  const totalRequests = usageForActiveKey.length;
+  const avgLatency =
+    usageForActiveKey.length > 0
+      ? Math.round(
+          usageForActiveKey.reduce((a, u) => a + (u.latency_ms || 0), 0) /
+            usageForActiveKey.length
+        )
+      : 0;
+  const errorCount = usageForActiveKey.filter((u) => u.status >= 400).length;
+  const errorRate =
+    totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(1) : "0.0";
+
+  // Requests per day (last 7 days)
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().split("T")[0];
+  });
+  const requestsPerDay = last7Days.map((day) => ({
+    day,
+    count: usage.filter((u) => u.created_at.startsWith(day)).length,
+  }));
+  const maxPerDay = Math.max(1, ...requestsPerDay.map((r) => r.count));
+
+  // Last 10 requests
+  const recentRequests = usage.slice(0, 10);
 
   if (loading) {
     return (
@@ -154,27 +200,30 @@ export default function ApiPage() {
 
   return (
     <main className="min-h-screen bg-black text-white">
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[160px]" />
+      </div>
+
       {/* NAV */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/50 sticky top-0 bg-black/95 backdrop-blur z-30">
-        <a href="/" className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-zinc-800 rounded-full flex items-center justify-center text-xs font-bold">
-            G
-          </div>
-          <span className="text-lg font-bold tracking-tighter">Gyra API</span>
-        </a>
-        <div className="flex items-center gap-4 text-sm">
-          <a
-  href="/playground"
-  className="text-zinc-400 hover:text-white transition-colors hidden md:inline"
->
-  Playground
-</a>
-          <a href="/docs" className="text-zinc-400 hover:text-white transition-colors hidden md:inline">
+      <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-6 border-b border-white/5 backdrop-blur-sm">
+        <Link href="/" className="flex items-center gap-3">
+          <Logo size={28} animated={false} />
+          <span className="font-bold tracking-widest text-sm">GYRA</span>
+          <span className="text-zinc-600 text-xs tracking-widest">API</span>
+        </Link>
+        <div className="flex items-center gap-6 text-sm text-zinc-400">
+          <Link href="/docs" className="hover:text-white transition-colors">
             Docs
-          </a>
-          <a href="/dashboard" className="text-zinc-400 hover:text-white transition-colors hidden md:inline">
-            Dashboard
-          </a>
+          </Link>
+          <Link
+            href="/playground"
+            className="hover:text-white transition-colors"
+          >
+            Playground
+          </Link>
+          <Link href="/status" className="hover:text-white transition-colors">
+            Status
+          </Link>
           {!user ? (
             <button
               onClick={handleLogin}
@@ -183,28 +232,28 @@ export default function ApiPage() {
               Sign in
             </button>
           ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold">
-                {user.email[0].toUpperCase()}
-              </div>
+            <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold">
+              {user.email[0].toUpperCase()}
             </div>
           )}
         </div>
       </nav>
 
-      {/* ============ NOT LOGGED IN ============ */}
+      {/* NOT LOGGED IN */}
       {!user && (
         <>
-          {/* HERO */}
-          <section className="max-w-6xl mx-auto px-6 py-20 grid md:grid-cols-2 gap-12 items-center">
+          <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-20 grid md:grid-cols-2 gap-12 items-center">
             <div>
-              <p className="text-sm text-zinc-500 mb-3">Gyra API</p>
-              <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+              <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-3">
+                Gyra API
+              </p>
+              <h1 className="text-4xl md:text-6xl font-bold tracking-tighter mb-6">
                 Build with Gyra.
               </h1>
               <p className="text-zinc-400 mb-8 leading-relaxed">
-                Generate text and code, create images and video, build voice
-                agents, and search the web in real time, all through one API.
+                Generate text and code, analyze images, and build voice agents
+                — all through one clean API. Free keys, OpenAI-compatible
+                responses.
               </p>
               <div className="flex gap-3 flex-wrap">
                 <button
@@ -213,12 +262,12 @@ export default function ApiPage() {
                 >
                   Get your API key
                 </button>
-                <a
+                <Link
                   href="/docs"
                   className="bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full font-medium hover:bg-zinc-800 transition-colors"
                 >
                   Read the docs
-                </a>
+                </Link>
               </div>
               <div className="flex flex-col gap-2 mt-8 text-sm text-zinc-400">
                 <p>✓ Works with your existing SDK</p>
@@ -227,7 +276,6 @@ export default function ApiPage() {
               </div>
             </div>
 
-            {/* CODE SAMPLE */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 font-mono text-xs overflow-x-auto">
               <div className="flex items-center gap-1.5 mb-4">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
@@ -248,19 +296,18 @@ print(response.content)`}
             </div>
           </section>
 
-          {/* WHAT YOU CAN BUILD */}
-          <section className="max-w-6xl mx-auto px-6 py-20 border-t border-zinc-800/50">
+          <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-20 border-t border-white/5">
             <h2 className="text-3xl md:text-4xl font-bold mb-12 text-center">
               Everything you can build with the API
             </h2>
             <div className="grid md:grid-cols-2 gap-8">
               {[
-                { icon: "</>", title: "Code", desc: "Intelligent coding models for software engineering, building apps, and orchestrating agents." },
-                { icon: "≡", title: "Text generation", desc: "Powerful text and reasoning models for chat, analysis, and problem-solving." },
-                { icon: "🔍", title: "Live web search", desc: "Tap into the now with real-time search, pulling fresh data from the web." },
-                { icon: "📁", title: "Files & collections", desc: "Upload documents and let Gyra intelligently search and reason over them." },
-                { icon: "🖼️", title: "Imagine API", desc: "Generate and edit images, and create video with native audio from one API." },
-                { icon: "🎙️", title: "Voice API", desc: "Build realtime voice agents: speech-to-speech, text-to-speech, and speech-to-text." },
+                { icon: "</>", title: "Code", desc: "Intelligent coding models for software engineering and automation." },
+                { icon: "≡", title: "Text generation", desc: "Powerful text and reasoning models for chat, analysis, and research." },
+                { icon: "🔍", title: "Live web search", desc: "Real-time search via Tavily, pulling fresh data from the web." },
+                { icon: "📁", title: "Files & documents", desc: "Upload documents and let Gyra reason over them." },
+                { icon: "🖼️", title: "Imagine API", desc: "Generate and edit images from a single API call." },
+                { icon: "🎙️", title: "Voice API", desc: "Build realtime voice agents with speech-to-speech." },
               ].map((f) => (
                 <div key={f.title} className="flex gap-4">
                   <div className="w-10 h-10 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-400 shrink-0">
@@ -277,14 +324,18 @@ print(response.content)`}
         </>
       )}
 
-      {/* ============ LOGGED IN — DASHBOARD ============ */}
+      {/* LOGGED IN — DASHBOARD */}
       {user && onboarded && (
-        <section className="max-w-5xl mx-auto px-6 py-10">
+        <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-10">
+          {/* Header */}
           <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold mb-1">Your API Keys</h1>
+              <h1 className="text-3xl font-bold tracking-tighter mb-1">
+                Developer Console
+              </h1>
               <p className="text-zinc-500 text-sm">
-                {keys.length} key{keys.length !== 1 ? "s" : ""} • {keys.filter(k => k.active && !k.revoked).length} active
+                {keys.length} key{keys.length !== 1 ? "s" : ""} ·{" "}
+                {keys.filter((k) => k.active && !k.revoked).length} active
               </p>
             </div>
             <button
@@ -296,7 +347,7 @@ print(response.content)`}
             </button>
           </div>
 
-          {/* NEWLY GENERATED KEY HIGHLIGHT */}
+          {/* Newly generated key */}
           {newlyGeneratedKey && (
             <div className="bg-blue-950/40 border border-blue-500/30 rounded-2xl p-6 mb-8">
               <div className="flex items-center gap-2 mb-3">
@@ -326,10 +377,99 @@ print(response.content)`}
             </div>
           )}
 
-          {/* KEYS LIST */}
+          {/* ANALYTICS SECTION */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {[
+              { label: "Total Requests", value: totalRequests, color: "text-blue-400" },
+              { label: "Avg Latency", value: `${avgLatency}ms`, color: "text-green-400" },
+              { label: "Error Rate", value: `${errorRate}%`, color: errorCount > 0 ? "text-yellow-400" : "text-green-400" },
+              { label: "Active Keys", value: keys.filter((k) => k.active && !k.revoked).length, color: "text-purple-400" },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5"
+              >
+                <p className="text-[10px] tracking-wider text-zinc-500 uppercase mb-2">
+                  {stat.label}
+                </p>
+                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* CHART + RECENT REQUESTS */}
+          <div className="grid lg:grid-cols-2 gap-6 mb-8">
+            {/* Chart */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-6">
+                <p className="text-sm font-semibold">Requests · Last 7 days</p>
+              </div>
+              <div className="flex items-end gap-2 h-32 mb-3">
+                {requestsPerDay.map((r) => (
+                  <div key={r.day} className="flex-1 flex flex-col items-center gap-2">
+                    <div
+                      className="w-full bg-blue-500/60 hover:bg-blue-400 rounded-t transition-colors"
+                      style={{
+                        height: `${Math.max(4, (r.count / maxPerDay) * 100)}%`,
+                      }}
+                    />
+                    <span className="text-[10px] text-zinc-600">
+                      {new Date(r.day).toLocaleDateString("en-US", {
+                        weekday: "short",
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {totalRequests === 0 && (
+                <p className="text-xs text-zinc-600 text-center mt-2 italic">
+                  No requests yet — start using your API key
+                </p>
+              )}
+            </div>
+
+            {/* Recent requests */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6">
+              <p className="text-sm font-semibold mb-4">Recent Requests</p>
+              {recentRequests.length === 0 ? (
+                <p className="text-xs text-zinc-600 italic">
+                  No requests yet.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {recentRequests.map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between text-xs py-2 border-b border-zinc-800/50 last:border-0"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            r.status < 400 ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        />
+                        <span className="font-mono text-zinc-400">
+                          {r.endpoint}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-zinc-500">
+                        <span>{r.latency_ms}ms</span>
+                        <span>{formatDate(r.created_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* API KEYS LIST */}
+          <h2 className="text-xl font-bold mb-4 mt-12">Your API Keys</h2>
           {keys.length === 0 ? (
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-12 text-center">
-              <p className="text-zinc-400 mb-4">You don't have any API keys yet.</p>
+              <p className="text-zinc-400 mb-4">
+                You don&apos;t have any API keys yet.
+              </p>
               <button
                 onClick={generateKey}
                 className="bg-white text-black px-5 py-2.5 rounded-full font-medium text-sm"
@@ -366,7 +506,6 @@ print(response.content)`}
                         {k.key.substring(0, 16)}••••••••••••••••
                       </p>
                     </div>
-
                     <div className="flex gap-2 shrink-0">
                       {!k.revoked && (
                         <button
@@ -393,8 +532,6 @@ print(response.content)`}
                       )}
                     </div>
                   </div>
-
-                  {/* STATS */}
                   <div className="grid grid-cols-3 gap-4 pt-4 border-t border-zinc-800/50">
                     <div>
                       <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">
@@ -424,7 +561,7 @@ print(response.content)`}
             </div>
           )}
 
-          {/* QUICKSTART SNIPPET */}
+          {/* Quickstart */}
           <div className="mt-12">
             <h2 className="text-xl font-bold mb-4">Quickstart</h2>
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 font-mono text-xs overflow-x-auto">
@@ -435,19 +572,27 @@ print(response.content)`}
   -d '{"messages":[{"role":"user","content":"Hello Gyra!"}]}'`}
               </pre>
             </div>
-            <a
-              href="/docs"
-              className="text-sm text-blue-400 hover:text-blue-300 mt-4 inline-block"
-            >
-              See full docs →
-            </a>
+            <div className="flex gap-4 mt-4">
+              <Link
+                href="/docs"
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                See full docs →
+              </Link>
+              <Link
+                href="/playground"
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                Try the playground →
+              </Link>
+            </div>
           </div>
         </section>
       )}
 
-      {/* ============ LOGGED IN — ONBOARDING ============ */}
+      {/* ONBOARDING */}
       {user && !onboarded && (
-        <section className="max-w-xl mx-auto px-6 py-20">
+        <section className="relative z-10 max-w-xl mx-auto px-6 py-20">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8">
             <h2 className="text-2xl font-bold mb-2">Create your team</h2>
             <p className="text-zinc-400 text-sm mb-6">
@@ -490,7 +635,7 @@ print(response.content)`}
         </section>
       )}
 
-      {/* REVOKE CONFIRMATION MODAL */}
+      {/* REVOKE MODAL */}
       {revokeTarget && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
           <div className="bg-zinc-950 border border-red-500/30 rounded-2xl p-8 max-w-md w-full">
