@@ -31,6 +31,29 @@ const CHANGELOG: YearBlock[] = [
     year: "2026",
     entries: [
       {
+        version: "Gyra 1.1",
+        date: "October 15, 2026",
+        groups: [
+          {
+            title: "New Features",
+            bullets: [
+              { text: "Added voice output for all replies." },
+              { text: "Added theme switching in the settings panel." },
+              {
+                text: "Added James voice for developers to integrate into their projects.",
+                codeRefs: ["James"],
+              },
+            ],
+          },
+          {
+            title: "Fixed",
+            bullets: [
+              { text: "Fixed streaming lag on slow connections." },
+            ],
+          },
+        ],
+      },
+      {
         version: "Gyra 1.0",
         date: "September 1, 2026",
         groups: [
@@ -88,7 +111,7 @@ function Code({ children }: { children: string }) {
 // Renders a bullet — detects codeRefs + links
 // ============================================================
 function BulletLine({ bullet }: { bullet: Bullet }) {
-  let text = bullet.text;
+  const text = bullet.text;
   const nodes: (string | React.ReactNode)[] = [];
   let cursor = 0;
   const matches: { index: number; length: number; word: string; isCode: boolean }[] = [];
