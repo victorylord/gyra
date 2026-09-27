@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
 import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
-import Image from "next/image";
+import AttachmentMenu from "../components/AttachmentMenu";
 
 // ============================================================
-// MessageContent — renders AI replies with code block support
+// MessageContent — renders code blocks with copy buttons
 // ============================================================
 function MessageContent({ content }: { content: string }) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -93,25 +93,35 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Chat state
+  // Chat
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
-  // Think + Search + Voice
+  // Modes
   const [thinkMode, setThinkMode] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+
+  // Attachment
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [attachment, setAttachment] = useState<{
+    base64: string;
+    type: "image" | "file";
+    name: string;
+  } | null>(null);
 
   // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load user + chats
+  // ============================================================
+  // INIT
+  // ============================================================
   useEffect(() => {
     const init = async () => {
       const {
@@ -150,13 +160,15 @@ export default function Dashboard() {
     init();
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
+  // ============================================================
+  // MESSAGE LOADING
+  // ============================================================
   const loadMessages = async (chatId: string) => {
     const { data } = await supabase
       .from("messages")
@@ -190,8 +202,78 @@ export default function Dashboard() {
     await loadMessages(id);
   };
 
+  // ============================================================
+  // ATTACHMENT HANDLERS
+  // ============================================================
+  const handleCamera = () => {
+    setShowAttachMenu(false);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment";
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachment({
+          base64: reader.result as string,
+          type: "image",
+          name: file.name,
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  const handleGallery = () => {
+    setShowAttachMenu(false);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,video/*";
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachment({
+          base64: reader.result as string,
+          type: "image",
+          name: file.name,
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  const handleFiles = () => {
+    setShowAttachMenu(false);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,.doc,.docx,.txt,.csv,.json,.md,.xlsx,.pptx";
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachment({
+          base64: reader.result as string,
+          type: "file",
+          name: file.name,
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  // ============================================================
+  // SEND MESSAGE
+  // ============================================================
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && !attachment) return;
 
     let chatId = activeChatId;
     if (!chatId) {
@@ -207,11 +289,23 @@ export default function Dashboard() {
       chatId = data.id;
     }
 
-    const userMessage = { role: "user", content: input };
+    const userMessage: any = {
+      role: "user",
+      content: input.trim() || (attachment ? "Analyze this" : ""),
+    };
+    if (attachment) {
+      if (attachment.type === "image") {
+        userMessage.imageBase64 = attachment.base64;
+      } else {
+        userMessage.fileBase64 = attachment.base64;
+      }
+    }
+
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
-    const currentInput = input;
+    const currentInput = userMessage.content;
     setInput("");
+    setAttachment(null);
     setLoading(true);
 
     await supabase.from("messages").insert([
@@ -220,8 +314,7 @@ export default function Dashboard() {
 
     if (messages.length === 0) {
       const newTitle =
-        currentInput.substring(0, 25) +
-        (currentInput.length > 25 ? "..." : "");
+        currentInput.substring(0, 25) + (currentInput.length > 25 ? "..." : "");
       await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
       setChats(
         chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
@@ -235,7 +328,12 @@ export default function Dashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: updatedMessages,
+          messages: updatedMessages.map((m: any) => ({
+            role: m.role,
+            content: m.content,
+            imageBase64: m.imageBase64,
+            fileBase64: m.fileBase64,
+          })),
           think: thinkMode,
           search: searchMode,
         }),
@@ -294,6 +392,9 @@ export default function Dashboard() {
     setLoading(false);
   };
 
+  // ============================================================
+  // CHAT ACTIONS
+  // ============================================================
   const deleteChat = async (id: string) => {
     await supabase.from("chats").delete().eq("id", id);
     setChats(chats.filter((c) => c.id !== id));
@@ -309,7 +410,9 @@ export default function Dashboard() {
     const newTitle = window.prompt("Rename conversation:");
     if (newTitle && newTitle.trim()) {
       await supabase.from("chats").update({ title: newTitle }).eq("id", id);
-      setChats(chats.map((c) => (c.id === id ? { ...c, title: newTitle } : c)));
+      setChats(
+        chats.map((c) => (c.id === id ? { ...c, title: newTitle } : c))
+      );
     }
     setActiveChatMenu(null);
   };
@@ -350,15 +453,17 @@ export default function Dashboard() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Get the latest assistant message for voice output
   const latestAssistantMessage =
     messages.length > 0 && messages[messages.length - 1].role === "assistant"
       ? messages[messages.length - 1].content
       : "";
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
-      {/* Voice Output — speaks Gyra's replies when enabled */}
+      {/* Voice */}
       {voiceEnabled && latestAssistantMessage && (
         <VoiceOutput
           enabled={voiceEnabled}
@@ -368,7 +473,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Broadcast Banner */}
+      {/* Broadcast */}
       {activeBroadcast && (
         <div
           className={`absolute top-4 left-1/2 -translate-x-1/2 z-[90] max-w-md w-[calc(100%-2rem)] rounded-2xl border p-4 shadow-2xl ${
@@ -399,7 +504,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* TOS Modal */}
+      {/* TOS */}
       {showToS && (
         <div className="absolute inset-0 bg-black/90 z-[80] flex items-center justify-center p-6 backdrop-blur-sm">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 max-w-lg w-full flex flex-col items-center text-center">
@@ -420,7 +525,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Settings Modal */}
+      {/* Settings */}
       {showSettings && (
         <SettingsPanel
           user={user}
@@ -429,7 +534,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Upgrade Modal */}
+      {/* Upgrade */}
       {showUpgrade && (
         <div className="absolute inset-0 bg-black z-[75] flex flex-col overflow-hidden">
           <div className="flex items-center gap-4 p-4">
@@ -527,7 +632,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Sidebar */}
+      {/* SIDEBAR */}
       <div
         className={`fixed md:relative inset-y-0 left-0 z-50 w-[85%] max-w-sm md:w-64 border-r border-zinc-800/50 flex flex-col justify-between bg-black transform transition-transform duration-300 ease-in-out ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
@@ -784,7 +889,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Area */}
+      {/* MAIN AREA */}
       <div className="flex-1 flex flex-col relative z-10 h-full">
         <div className="w-full flex items-center justify-between px-4 py-3 border-b border-zinc-800/50 shrink-0">
           <div className="flex items-center gap-2">
@@ -875,6 +980,48 @@ export default function Dashboard() {
         </div>
 
         <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
+          {/* Attachment preview */}
+          {attachment && (
+            <div className="mb-3 p-3 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-3">
+              {attachment.type === "image" ? (
+                <img
+                  src={attachment.base64}
+                  alt="preview"
+                  className="w-12 h-12 rounded-lg object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-lg bg-zinc-800 flex items-center justify-center text-2xl">
+                  📎
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{attachment.name}</p>
+                <p className="text-xs text-zinc-500">
+                  {attachment.type === "image"
+                    ? "Image attached"
+                    : "File attached"}
+                </p>
+              </div>
+              <button
+                onClick={() => setAttachment(null)}
+                className="text-zinc-500 hover:text-red-400 text-xl"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Attachment menu */}
+          {showAttachMenu && (
+            <AttachmentMenu
+              onCamera={handleCamera}
+              onGallery={handleGallery}
+              onFiles={handleFiles}
+              onClose={() => setShowAttachMenu(false)}
+            />
+          )}
+
+          {/* Modes */}
           <div className="flex gap-2 mb-3 flex-wrap">
             <button
               onClick={() => setThinkMode(!thinkMode)}
@@ -902,6 +1049,7 @@ export default function Dashboard() {
             />
           </div>
 
+          {/* Input */}
           <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-3 flex flex-col gap-2">
             <input
               type="text"
@@ -913,7 +1061,10 @@ export default function Dashboard() {
             />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
+                <button
+                  onClick={() => setShowAttachMenu(!showAttachMenu)}
+                  className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+                >
                   <svg
                     className="w-4 h-4 text-zinc-300"
                     fill="none"
@@ -924,7 +1075,11 @@ export default function Dashboard() {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth="2"
-                      d="M12 4v16m8-8H4"
+                      d={
+                        showAttachMenu
+                          ? "M6 18L18 6M6 6l12 12"
+                          : "M12 4v16m8-8H4"
+                      }
                     />
                   </svg>
                 </button>
@@ -936,7 +1091,7 @@ export default function Dashboard() {
                 <button className="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
                   🎙
                 </button>
-                {input.trim().length > 0 ? (
+                {input.trim().length > 0 || attachment ? (
                   <button
                     onClick={sendMessage}
                     disabled={loading}
