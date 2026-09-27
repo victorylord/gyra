@@ -32,7 +32,7 @@ const CHANGELOG: YearBlock[] = [
     entries: [
       {
         version: "Gyra 1.1",
-        date: "October 15, 2026",
+        date: "September 25, 2026",
         groups: [
           {
             title: "New Features",
