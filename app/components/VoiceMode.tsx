@@ -18,10 +18,13 @@ type VoiceModeProps = {
   getLatestAssistantReply: () => Promise<string | null>;
 };
 
-const SILENCE_RMS = 0.02;
-const SILENCE_MS = 1400;
-const MIN_SPEECH_MS = 400;
-const MAX_RECORD_MS = 60_000;
+// ---------- Tuning ----------
+const SILENCE_RMS = 0.008;          // lower = picks up quieter speech
+const SILENCE_MS = 3000;            // wait 3s of silence before stopping
+const MIN_SPEECH_MS = 800;          // ignore <0.8s blips
+const MAX_RECORD_MS = 90_000;       // hard cap
+const MIN_BLOB_BYTES = 3000;        // ~0.5s of webm/opus
+const START_GRACE_MS = 1500;        // don't count silence in the first 1.5s
 
 export default function VoiceMode({
   open,
@@ -33,6 +36,7 @@ export default function VoiceMode({
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [replyText, setReplyText] = useState<string>("");
+  const [volume, setVolume] = useState(0); // 0..1 for the "heard you" ring
   const { settings } = useVoiceSettings();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -47,6 +51,7 @@ export default function VoiceMode({
   const hardStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef<boolean>(false);
   const openRef = useRef<boolean>(open);
+  const hasSpokenRef = useRef<boolean>(false);
 
   useEffect(() => {
     openRef.current = open;
@@ -78,6 +83,7 @@ export default function VoiceMode({
     }
     audioCtxRef.current = null;
     analyserRef.current = null;
+    setVolume(0);
   }, []);
 
   useEffect(() => {
@@ -87,6 +93,7 @@ export default function VoiceMode({
       setPartial("");
       setReplyText("");
       setError(null);
+      hasSpokenRef.current = false;
     }
   }, [open, teardownAudio]);
 
@@ -119,6 +126,12 @@ export default function VoiceMode({
       rafRef.current = requestAnimationFrame(loop);
       analyser.getByteFrequencyData(data);
 
+      // Overall loudness for the "heard you" ring
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += data[i];
+      const avg = sum / bufferLength / 255;
+      setVolume(avg);
+
       ctx.clearRect(0, 0, W, H);
 
       const barCount = 64;
@@ -127,11 +140,11 @@ export default function VoiceMode({
       const gap = 2;
 
       for (let i = 0; i < barCount; i++) {
-        let sum = 0;
-        for (let j = 0; j < step; j++) sum += data[i * step + j];
-        const avg = sum / step / 255;
+        let s = 0;
+        for (let j = 0; j < step; j++) s += data[i * step + j];
+        const a = s / step / 255;
 
-        const h = Math.max(4, avg * H * 0.9);
+        const h = Math.max(4, a * H * 0.9);
         const x = i * barW + gap / 2;
         const y = (H - h) / 2;
 
@@ -223,9 +236,17 @@ export default function VoiceMode({
     setPartial("");
     setReplyText("");
     stoppedRef.current = false;
+    hasSpokenRef.current = false;
+    speechStartRef.current = 0;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
 
       const AudioCtx =
@@ -233,10 +254,15 @@ export default function VoiceMode({
       const audioCtx: AudioContext = new AudioCtx();
       audioCtxRef.current = audioCtx;
 
+      // Some browsers suspend the context until a user gesture
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume().catch(() => {});
+      }
+
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.75;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
       source.connect(analyser);
       analyserRef.current = analyser;
 
@@ -273,8 +299,10 @@ export default function VoiceMode({
         });
         chunksRef.current = [];
 
-        if (blob.size < 1000) {
-          setError("That was too short — try again.");
+        if (blob.size < MIN_BLOB_BYTES || !hasSpokenRef.current) {
+          setError(
+            "I didn't catch that. Hold on, tap Try again, and speak a full sentence."
+          );
           setState("error");
           teardownAudio();
           return;
@@ -308,6 +336,12 @@ export default function VoiceMode({
           }
 
           const transcript = String(data.text).trim();
+          if (!transcript) {
+            setError("I couldn't hear any words. Try again.");
+            setState("error");
+            teardownAudio();
+            return;
+          }
           setPartial(transcript);
 
           setState("thinking");
@@ -335,7 +369,7 @@ export default function VoiceMode({
           setState("idle");
           setTimeout(() => {
             if (openRef.current) startListening();
-          }, 400);
+          }, 600);
         } catch (err) {
           console.error(err);
           setError("Something went wrong. Please try again.");
@@ -344,11 +378,12 @@ export default function VoiceMode({
         }
       };
 
-      recorder.start();
+      recorder.start(250); // emit data every 250ms so nothing is lost
       setState("listening");
-      speechStartRef.current = 0;
-
       drawBars();
+
+      // Track the time we started, for the grace period
+      const startedAt = Date.now();
 
       const detectSilence = () => {
         if (!analyserRef.current || stoppedRef.current) return;
@@ -363,6 +398,8 @@ export default function VoiceMode({
         const rms = Math.sqrt(sum / buf.length);
 
         if (rms > SILENCE_RMS) {
+          // heard something
+          hasSpokenRef.current = true;
           if (speechStartRef.current === 0)
             speechStartRef.current = Date.now();
           if (silenceTimerRef.current) {
@@ -370,11 +407,16 @@ export default function VoiceMode({
             silenceTimerRef.current = null;
           }
         } else {
+          const withinGrace = Date.now() - startedAt < START_GRACE_MS;
           const spokeLongEnough =
             speechStartRef.current > 0 &&
             Date.now() - speechStartRef.current > MIN_SPEECH_MS;
 
-          if (spokeLongEnough && !silenceTimerRef.current) {
+          if (
+            !withinGrace &&
+            spokeLongEnough &&
+            !silenceTimerRef.current
+          ) {
             silenceTimerRef.current = setTimeout(() => {
               stopRecording();
             }, SILENCE_MS);
@@ -406,7 +448,6 @@ export default function VoiceMode({
     speakText,
   ]);
 
-  // ---------- cancel ----------
   const handleCancel = () => {
     stoppedRef.current = true;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -416,7 +457,6 @@ export default function VoiceMode({
     onClose();
   };
 
-  // ---------- open → auto start ----------
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => startListening(), 200);
@@ -430,7 +470,9 @@ export default function VoiceMode({
   const statusLabel = (() => {
     switch (state) {
       case "listening":
-        return "Listening…";
+        return hasSpokenRef.current
+          ? "Listening… (tap ✓ when done)"
+          : "I'm listening — speak now";
       case "transcribing":
         return "Understanding…";
       case "thinking":
@@ -446,7 +488,6 @@ export default function VoiceMode({
 
   return (
     <div className="fixed inset-0 z-[65] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center px-6">
-      {/* Close */}
       <button
         onClick={handleCancel}
         className="absolute top-5 right-5 w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
@@ -467,10 +508,8 @@ export default function VoiceMode({
         </svg>
       </button>
 
-      {/* Status */}
       <p className="text-sm text-zinc-400 tracking-wide mb-6">{statusLabel}</p>
 
-      {/* Visualizer */}
       <div className="relative w-full max-w-2xl h-40 flex items-center justify-center">
         <canvas
           ref={canvasRef}
@@ -494,7 +533,16 @@ export default function VoiceMode({
         )}
       </div>
 
-      {/* Transcript / reply */}
+      {/* "I heard you" ring — grows with volume */}
+      {state === "listening" && (
+        <div className="mt-2 h-2 w-40 bg-zinc-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-500 transition-[width] duration-75"
+            style={{ width: `${Math.min(100, volume * 400)}%` }}
+          />
+        </div>
+      )}
+
       <div className="mt-6 w-full max-w-xl text-center min-h-[80px]">
         {partial && (
           <p className="text-base text-zinc-200 leading-relaxed">
@@ -507,12 +555,9 @@ export default function VoiceMode({
             {replyText}
           </p>
         )}
-        {error && (
-          <p className="text-sm text-red-400 leading-relaxed">{error}</p>
-        )}
+        {error && <p className="text-sm text-red-400 leading-relaxed">{error}</p>}
       </div>
 
-      {/* Controls */}
       <div className="mt-8 flex items-center gap-4">
         {state === "error" ? (
           <>
@@ -532,6 +577,28 @@ export default function VoiceMode({
               Close
             </button>
           </>
+        ) : state === "listening" ? (
+          // Manual "Done" button — no more waiting for silence
+          <button
+            onClick={stopRecording}
+            className="w-20 h-20 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-colors shadow-lg shadow-blue-500/30"
+            aria-label="Send now"
+            title="Tap when you're done speaking"
+          >
+            <svg
+              className="w-8 h-8 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2.5"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </button>
         ) : (
           <button
             onClick={handleCancel}
@@ -544,8 +611,9 @@ export default function VoiceMode({
       </div>
 
       <p className="mt-6 text-xs text-zinc-600 text-center max-w-sm">
-        Speak naturally. Gyra will detect when you stop talking and reply
-        automatically.
+        {state === "listening"
+          ? "Speak a full sentence. Tap the ✓ when you're done, or just pause for 3 seconds."
+          : "Speak naturally. Gyra will reply and keep the conversation going."}
       </p>
     </div>
   );
