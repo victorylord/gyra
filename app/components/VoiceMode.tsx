@@ -19,12 +19,12 @@ type VoiceModeProps = {
 };
 
 // ---------- Tuning ----------
-const SILENCE_RMS = 0.008;          // lower = picks up quieter speech
-const SILENCE_MS = 3000;            // wait 3s of silence before stopping
+const SILENCE_RMS = 0.020;          // lower = picks up quieter speech
+const SILENCE_MS = 10000;            // wait 3s of silence before stopping
 const MIN_SPEECH_MS = 800;          // ignore <0.8s blips
 const MAX_RECORD_MS = 90_000;       // hard cap
 const MIN_BLOB_BYTES = 3000;        // ~0.5s of webm/opus
-const START_GRACE_MS = 1500;        // don't count silence in the first 1.5s
+const START_GRACE_MS = 5500;        // don't count silence in the first 1.5s
 
 export default function VoiceMode({
   open,
