@@ -565,7 +565,7 @@ export default function VoiceMode({
       <p className="mt-6 text-xs text-zinc-600 text-center max-w-sm">
         {state === "listening"
           ? "Speak as long as you want. Tap the ✓ when you're done — no time limit."
-          : "Gyra will reply and keep the conversation going."}
+          : "Gyra Ai Voice will reply and keep the conversation going."}
       </p>
     </div>
   );
