@@ -737,7 +737,10 @@ export default function Dashboard() {
               {
                 label: "Automations",
                 icon: "⚙️",
-                action: () => alert("Automations coming soon!"),
+                action: () => {
+                window.location.href = "/studio";
+                setIsSidebarOpen(false);
+                },
               },
               {
                 label: "Library",
