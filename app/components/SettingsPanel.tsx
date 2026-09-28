@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useVoiceSettings, type VoiceId } from "./voiceSettings";
 
 type SettingsPanelProps = {
   user: any;
@@ -12,6 +13,7 @@ const SECTIONS = [
   { id: "Account", icon: "👤" },
   { id: "Appearance", icon: "🌗" },
   { id: "Behavior", icon: "🎯" },
+  { id: "Voice", icon: "🎙️" },
   { id: "Notifications", icon: "🔔" },
   { id: "Customize", icon: "🎨" },
   { id: "Data & Information", icon: "📄" },
@@ -25,7 +27,7 @@ export default function SettingsPanel({
 }: SettingsPanelProps) {
   const [activeSection, setActiveSection] = useState("Account");
 
-  // Local settings state (persists per session for now)
+  // Local settings state
   const [appearance, setAppearance] = useState<"system" | "light" | "dark">(
     "system"
   );
@@ -37,7 +39,11 @@ export default function SettingsPanel({
   const [customPrompt, setCustomPrompt] = useState("");
   const [customPersonality, setCustomPersonality] = useState("Default");
 
-  // Apply theme to document
+  // Shared voice settings
+  const { settings: voiceSettings, update: updateVoice } = useVoiceSettings();
+  const [testing, setTesting] = useState(false);
+
+  // Apply theme
   useEffect(() => {
     const root = document.documentElement;
     if (appearance === "light") {
@@ -55,9 +61,31 @@ export default function SettingsPanel({
     }
   }, [appearance]);
 
+  // Speak a test line using the currently-selected voice
+  const testVoice = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      alert("Your browser does not support voice output.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    setTesting(true);
+
+    const sample =
+      voiceSettings.voiceId === "james"
+        ? "Hi, I'm James. I'm ready to help."
+        : "Hi, I'm Ara. I'm ready to help.";
+
+    const u = new SpeechSynthesisUtterance(sample);
+    u.rate = voiceSettings.rate;
+    u.pitch = voiceSettings.pitch;
+    u.onend = () => setTesting(false);
+    u.onerror = () => setTesting(false);
+    window.speechSynthesis.speak(u);
+  };
+
   return (
     <div className="absolute inset-0 bg-black z-[70] flex flex-col overflow-hidden">
-      {/* ============ TOP BAR ============ */}
+      {/* TOP BAR */}
       <div className="flex items-center gap-4 px-4 py-4 border-b border-zinc-800/50 shrink-0">
         <button
           onClick={onClose}
@@ -81,9 +109,8 @@ export default function SettingsPanel({
         <h2 className="text-xl font-bold tracking-tight">Settings</h2>
       </div>
 
-      {/* ============ BODY ============ */}
+      {/* BODY */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar of sections */}
         <aside className="w-48 md:w-56 border-r border-zinc-800/50 overflow-y-auto shrink-0 bg-black">
           <div className="py-3">
             {SECTIONS.map((section) => (
@@ -103,16 +130,14 @@ export default function SettingsPanel({
           </div>
         </aside>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {/* ============ ACCOUNT ============ */}
+          {/* ACCOUNT */}
           {activeSection === "Account" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-6">
                 Account
               </h3>
 
-              {/* User card */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-lg font-bold text-white shrink-0">
                   {user?.email?.[0]?.toUpperCase() || "V"}
@@ -137,7 +162,6 @@ export default function SettingsPanel({
                 </button>
               </div>
 
-              {/* X account */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-black border border-zinc-800 flex items-center justify-center shrink-0">
                   <span className="text-white text-lg font-bold">𝕏</span>
@@ -158,7 +182,6 @@ export default function SettingsPanel({
                 </button>
               </div>
 
-              {/* Language + Birth year */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl divide-y divide-zinc-800">
                 <div className="p-5 flex items-center justify-between gap-4">
                   <div>
@@ -218,7 +241,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ APPEARANCE ============ */}
+          {/* APPEARANCE */}
           {activeSection === "Appearance" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-2">
@@ -258,7 +281,6 @@ export default function SettingsPanel({
                         : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
                     }`}
                   >
-                    {/* Preview swatch */}
                     <div className="w-14 h-14 rounded-xl overflow-hidden border border-zinc-800 flex shrink-0">
                       <div className={`flex-1 ${opt.preview[0]}`} />
                       <div className={`flex-1 ${opt.preview[1]}`} />
@@ -294,7 +316,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ BEHAVIOR ============ */}
+          {/* BEHAVIOR */}
           {activeSection === "Behavior" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-2">
@@ -306,26 +328,14 @@ export default function SettingsPanel({
 
               <div className="flex flex-col gap-3">
                 {[
-                  {
-                    id: "Concise",
-                    desc: "Short, direct answers",
-                  },
-                  {
-                    id: "Balanced",
-                    desc: "A mix of detail and brevity",
-                  },
-                  {
-                    id: "Detailed",
-                    desc: "Long, thorough answers",
-                  },
+                  { id: "Concise", desc: "Short, direct answers" },
+                  { id: "Balanced", desc: "A mix of detail and brevity" },
+                  { id: "Detailed", desc: "Long, thorough answers" },
                   {
                     id: "Creative",
                     desc: "More expressive and imaginative",
                   },
-                  {
-                    id: "Professional",
-                    desc: "Formal and precise",
-                  },
+                  { id: "Professional", desc: "Formal and precise" },
                 ].map((opt) => (
                   <button
                     key={opt.id}
@@ -363,7 +373,139 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ NOTIFICATIONS ============ */}
+          {/* VOICE — NEW SECTION */}
+          {activeSection === "Voice" && (
+            <div className="max-w-2xl">
+              <h3 className="text-2xl font-bold tracking-tight mb-2">
+                Voice
+              </h3>
+              <p className="text-sm text-zinc-500 mb-8">
+                Choose how Gyra sounds and speaks.
+              </p>
+
+              {/* Voice picker */}
+              <p className="text-sm font-medium mb-3">Voice</p>
+              <div className="flex flex-col gap-3 mb-8">
+                {[
+                  {
+                    id: "ara" as VoiceId,
+                    name: "Ara",
+                    desc: "Warm, clear, and natural",
+                    emoji: "👩",
+                  },
+                  {
+                    id: "james" as VoiceId,
+                    name: "James",
+                    desc: "Deep, confident, and calm",
+                    emoji: "👨",
+                  },
+                ].map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => updateVoice({ voiceId: v.id })}
+                    className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left ${
+                      voiceSettings.voiceId === v.id
+                        ? "border-blue-500 bg-blue-500/5"
+                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-2xl shrink-0">
+                      {v.emoji}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm">{v.name}</p>
+                      <p className="text-xs text-zinc-500 mt-1">{v.desc}</p>
+                    </div>
+                    {voiceSettings.voiceId === v.id && (
+                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                        <svg
+                          className="w-3.5 h-3.5 text-white"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="3"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Rate */}
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-medium text-sm">Speaking rate</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      How fast Gyra speaks
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono text-blue-400">
+                    {voiceSettings.rate.toFixed(2)}×
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.6}
+                  step={0.05}
+                  value={voiceSettings.rate}
+                  onChange={(e) =>
+                    updateVoice({ rate: parseFloat(e.target.value) })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+
+              {/* Pitch */}
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-medium text-sm">Pitch</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Higher or lower tone
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono text-blue-400">
+                    {voiceSettings.pitch.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={1.6}
+                  step={0.05}
+                  value={voiceSettings.pitch}
+                  onChange={(e) =>
+                    updateVoice({ pitch: parseFloat(e.target.value) })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+
+              {/* Test */}
+              <button
+                onClick={testVoice}
+                disabled={testing}
+                className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-60"
+              >
+                {testing ? "Speaking…" : "🔊 Test voice"}
+              </button>
+
+              <p className="text-xs text-zinc-600 mt-6">
+                Voice output uses your browser's built-in speech engine. Which
+                voice plays depends on what's installed on your device.
+              </p>
+            </div>
+          )}
+
+          {/* NOTIFICATIONS */}
           {activeSection === "Notifications" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-2">
@@ -419,7 +561,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ CUSTOMIZE ============ */}
+          {/* CUSTOMIZE */}
           {activeSection === "Customize" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-2">
@@ -462,7 +604,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ DATA & INFORMATION ============ */}
+          {/* DATA & INFORMATION */}
           {activeSection === "Data & Information" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-6">
@@ -518,7 +660,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* ============ DATA CONTROLS ============ */}
+          {/* DATA CONTROLS */}
           {activeSection === "Data Controls" && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold tracking-tight mb-2">

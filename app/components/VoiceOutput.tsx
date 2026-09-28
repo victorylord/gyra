@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { resolveVoice, useVoiceSettings, type VoiceId } from "./voiceSettings";
 
 type VoiceOutputProps = {
   enabled: boolean;
@@ -22,12 +23,11 @@ export default function VoiceOutput({
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [supported, setSupported] = useState(true);
+  const { settings } = useVoiceSettings();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!("speechSynthesis" in window)) {
-      setSupported(false);
-    }
+    if (!("speechSynthesis" in window)) setSupported(false);
   }, []);
 
   useEffect(() => {
@@ -40,15 +40,15 @@ export default function VoiceOutput({
     utterance.rate = rate;
     utterance.pitch = pitch;
 
-    // Try to match a preferred voice
     const voices = window.speechSynthesis.getVoices();
+
+    // Priority: explicit voiceName → user's voiceId setting
     if (voiceName && voices.length > 0) {
       const match = voices.find((v) => v.name === voiceName);
       if (match) utterance.voice = match;
-    } else {
-      // Fallback to an English voice
-      const english = voices.find((v) => v.lang.startsWith("en"));
-      if (english) utterance.voice = english;
+    } else if (voices.length > 0) {
+      const resolved = resolveVoice(voices, settings.voiceId as VoiceId);
+      if (resolved) utterance.voice = resolved;
     }
 
     utterance.onstart = () => setSpeaking(true);
@@ -64,10 +64,9 @@ export default function VoiceOutput({
     return () => {
       window.speechSynthesis.cancel();
     };
-  }, [enabled, text, voiceName, rate, pitch, supported]);
+  }, [enabled, text, voiceName, rate, pitch, supported, settings.voiceId]);
 
   if (!enabled || !supported) return null;
-
   return null; // Side-effect only component
 }
 

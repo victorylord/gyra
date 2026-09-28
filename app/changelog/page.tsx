@@ -3,8 +3,8 @@ import Logo from "../Logo";
 
 type Bullet = {
   text: string;
-  codeRefs?: string[]; // words to render as inline code chips
-  links?: string[]; // words to render as blue links
+  codeRefs?: string[];
+  links?: string[];
 };
 
 type Group = {
@@ -23,16 +23,13 @@ type YearBlock = {
   entries: Entry[];
 };
 
-// ============================================================
-// CHANGELOG DATA
-// ============================================================
 const CHANGELOG: YearBlock[] = [
   {
     year: "2026",
     entries: [
       {
         version: "Gyra 1.1",
-        date: "September 25, 2026",
+        date: "October 15, 2026",
         groups: [
           {
             title: "New Features",
@@ -43,13 +40,12 @@ const CHANGELOG: YearBlock[] = [
                 text: "Added James voice for developers to integrate into their projects.",
                 codeRefs: ["James"],
               },
+              { text: "Added hands-free voice mode with live audio visualizer." },
             ],
           },
           {
             title: "Fixed",
-            bullets: [
-              { text: "Fixed streaming lag on slow connections." },
-            ],
+            bullets: [{ text: "Fixed streaming lag on slow connections." }],
           },
         ],
       },
@@ -60,11 +56,21 @@ const CHANGELOG: YearBlock[] = [
           {
             title: "First public release",
             bullets: [
-              { text: "Launched the Gyra platform — an intelligent, simplified AI assistant.", codeRefs: ["gyra"] },
-              { text: "Introduced the public Developer API with free keys.", codeRefs: ["gyra_"] },
+              {
+                text: "Launched the Gyra platform — an intelligent, simplified AI assistant.",
+                codeRefs: ["gyra"],
+              },
+              {
+                text: "Introduced the public Developer API with free keys.",
+                codeRefs: ["gyra_"],
+              },
               { text: "Added web and mobile chat with streaming responses." },
-              { text: "Added Vision — image, screenshot, and diagram understanding." },
-              { text: "Added File Intelligence — PDFs, images, and document analysis." },
+              {
+                text: "Added Vision — image, screenshot, and diagram understanding.",
+              },
+              {
+                text: "Added File Intelligence — PDFs, images, and document analysis.",
+              },
               { text: "Added Think mode for step-by-step reasoning." },
               { text: "Added Search mode with real-time web results." },
               { text: "Added persistent conversations with cloud sync." },
@@ -76,10 +82,14 @@ const CHANGELOG: YearBlock[] = [
             title: "Developer Platform",
             bullets: [
               { text: "Published documentation at gyra.ng/docs." },
-              { text: "Added interactive API Playground at gyra.ng/playground." },
+              {
+                text: "Added interactive API Playground at gyra.ng/playground.",
+              },
               { text: "Added Developer Console with usage analytics." },
               { text: "Added public status page at gyra.ng/status." },
-              { text: "Introduced Gyra API, Gyra Studio (preview), Gyra Cloud (preview)." },
+              {
+                text: "Introduced Gyra API, Gyra Studio (preview), Gyra Cloud (preview).",
+              },
             ],
           },
           {
@@ -96,9 +106,6 @@ const CHANGELOG: YearBlock[] = [
   },
 ];
 
-// ============================================================
-// Inline code chip
-// ============================================================
 function Code({ children }: { children: string }) {
   return (
     <code className="bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded text-[12px] font-mono">
@@ -107,22 +114,26 @@ function Code({ children }: { children: string }) {
   );
 }
 
-// ============================================================
-// Renders a bullet — detects codeRefs + links
-// ============================================================
 function BulletLine({ bullet }: { bullet: Bullet }) {
   const text = bullet.text;
   const nodes: (string | React.ReactNode)[] = [];
   let cursor = 0;
-  const matches: { index: number; length: number; word: string; isCode: boolean }[] = [];
+  const matches: {
+    index: number;
+    length: number;
+    word: string;
+    isCode: boolean;
+  }[] = [];
 
   (bullet.codeRefs || []).forEach((w) => {
     const idx = text.indexOf(w);
-    if (idx >= 0) matches.push({ index: idx, length: w.length, word: w, isCode: true });
+    if (idx >= 0)
+      matches.push({ index: idx, length: w.length, word: w, isCode: true });
   });
   (bullet.links || []).forEach((w) => {
     const idx = text.indexOf(w);
-    if (idx >= 0) matches.push({ index: idx, length: w.length, word: w, isCode: false });
+    if (idx >= 0)
+      matches.push({ index: idx, length: w.length, word: w, isCode: false });
   });
 
   matches.sort((a, b) => a.index - b.index);
@@ -152,25 +163,18 @@ function BulletLine({ bullet }: { bullet: Bullet }) {
   return (
     <li className="flex gap-3 leading-relaxed">
       <span className="text-zinc-600 select-none shrink-0">•</span>
-      <span className="text-zinc-300">
-        {nodes.length > 0 ? nodes : text}
-      </span>
+      <span className="text-zinc-300">{nodes.length > 0 ? nodes : text}</span>
     </li>
   );
 }
 
-// ============================================================
-// Changelog page
-// ============================================================
 export default function ChangelogPage() {
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* Ambient */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[160px]" />
       </div>
 
-      {/* Top nav — Telegram-style horizontal nav */}
       <div className="border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/95 backdrop-blur z-30">
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
@@ -196,12 +200,10 @@ export default function ChangelogPage() {
       </div>
 
       <div className="relative z-10 max-w-3xl mx-auto px-6 md:px-12 py-12">
-        {/* Title */}
         <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
           Gyra changelog
         </h1>
 
-        {/* Intro paragraph */}
         <p className="text-sm text-zinc-400 leading-relaxed mb-2">
           The Gyra platform is an intelligent, simplified AI assistant built for
           people, developers, and the applications they build.
@@ -214,7 +216,6 @@ export default function ChangelogPage() {
           » You will find all changes to Gyra on this page.
         </p>
 
-        {/* Recent changes callout */}
         <h2 className="text-lg font-semibold mt-8 mb-3">Recent changes</h2>
         <div className="border-l-2 border-blue-500 bg-blue-500/5 rounded-r-lg px-4 py-3 mb-12">
           <p className="text-sm text-zinc-300 leading-relaxed">
@@ -240,7 +241,6 @@ export default function ChangelogPage() {
           </p>
         </div>
 
-        {/* Years */}
         {CHANGELOG.map((yearBlock) => (
           <section key={yearBlock.year} className="mb-12">
             <h2 className="text-2xl font-bold tracking-tight mb-8">
@@ -249,15 +249,12 @@ export default function ChangelogPage() {
 
             {yearBlock.entries.map((entry) => (
               <article key={entry.date} className="mb-12 last:mb-0">
-                {/* Date */}
                 <h3 className="text-lg font-semibold mb-2">{entry.date}</h3>
 
-                {/* Version */}
                 <p className="text-base font-medium text-zinc-200 mb-6">
                   {entry.version}
                 </p>
 
-                {/* Groups */}
                 {entry.groups.map((group) => (
                   <div key={group.title} className="mb-8 last:mb-0">
                     <h4 className="text-sm font-semibold text-white mb-3">
@@ -275,7 +272,6 @@ export default function ChangelogPage() {
           </section>
         ))}
 
-        {/* Footer */}
         <div className="mt-20 pt-8 border-t border-zinc-800/60 text-xs text-zinc-600 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <p>© 2026 Gyra · Genvia AI Company</p>
           <div className="flex flex-wrap gap-5">
@@ -288,7 +284,10 @@ export default function ChangelogPage() {
             <Link href="/api" className="hover:text-white transition-colors">
               API
             </Link>
-            <Link href="/contact" className="hover:text-white transition-colors">
+            <Link
+              href="/contact"
+              className="hover:text-white transition-colors"
+            >
               Contact
             </Link>
           </div>

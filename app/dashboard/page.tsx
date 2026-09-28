@@ -5,6 +5,7 @@ import { supabase } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
 import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
+import VoiceMode from  "../components/VoiceMode";
 
 // ============================================================
 // MessageContent — renders code blocks with copy buttons
@@ -18,7 +19,8 @@ function MessageContent({ content }: { content: string }) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const parts: { type: "text" | "code"; content: string; language?: string }[] = [];
+  const parts: { type: "text" | "code"; content: string; language?: string }[] =
+    [];
   const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
 
   let lastIndex = 0;
@@ -117,7 +119,18 @@ export default function Dashboard() {
   // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
 
+  // Voice mode
+  const [showVoiceMode, setShowVoiceMode] = useState(false);
+  const voiceReplyResolverRef = useRef<((reply: string | null) => void) | null>(
+    null
+  );
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Keep latest messages accessible from voice mode callbacks
+  const messagesRef = useRef<any[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // ============================================================
   // INIT
@@ -270,10 +283,10 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // SEND MESSAGE
+  // CORE CHAT SENDER (used by both text input and voice)
   // ============================================================
-  const sendMessage = async () => {
-    if (!input.trim() && !attachment) return;
+  const runChat = async (text: string, imageBase64?: string, fileBase64?: string) => {
+    if (!text.trim() && !imageBase64 && !fileBase64) return;
 
     let chatId = activeChatId;
     if (!chatId) {
@@ -289,36 +302,23 @@ export default function Dashboard() {
       chatId = data.id;
     }
 
-    const userMessage: any = {
-      role: "user",
-      content: input.trim() || (attachment ? "Analyze this" : ""),
-    };
-    if (attachment) {
-      if (attachment.type === "image") {
-        userMessage.imageBase64 = attachment.base64;
-      } else {
-        userMessage.fileBase64 = attachment.base64;
-      }
-    }
+    const userMessage: any = { role: "user", content: text.trim() };
+    if (imageBase64) userMessage.imageBase64 = imageBase64;
+    if (fileBase64) userMessage.fileBase64 = fileBase64;
 
-    const updatedMessages = [...messages, userMessage];
+    const updatedMessages = [...messagesRef.current, userMessage];
     setMessages(updatedMessages);
-    const currentInput = userMessage.content;
-    setInput("");
-    setAttachment(null);
     setLoading(true);
 
-    await supabase.from("messages").insert([
-      { chat_id: chatId, role: "user", content: currentInput },
-    ]);
+    await supabase
+      .from("messages")
+      .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
-    if (messages.length === 0) {
+    if (messagesRef.current.length === 0) {
       const newTitle =
-        currentInput.substring(0, 25) + (currentInput.length > 25 ? "..." : "");
+        text.substring(0, 25) + (text.length > 25 ? "..." : "");
       await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
-      setChats(
-        chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
-      );
+      setChats(chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
     }
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
@@ -374,23 +374,81 @@ export default function Dashboard() {
               await supabase.from("messages").insert([
                 { chat_id: chatId, role: "assistant", content: fullReply },
               ]);
+              // Resolve any voice-mode waiter
+              if (voiceReplyResolverRef.current) {
+                voiceReplyResolverRef.current(fullReply);
+                voiceReplyResolverRef.current = null;
+              }
             }
           } catch (e) {}
         }
       }
+
+      // Safety: if done never fired, still resolve
+      if (voiceReplyResolverRef.current) {
+        voiceReplyResolverRef.current(fullReply || null);
+        voiceReplyResolverRef.current = null;
+      }
     } catch (err) {
       console.error(err);
+      const fallback = "Sorry, I ran into an error. Please try again.";
       setMessages((prev) => {
         const next = [...prev];
         next[next.length - 1] = {
           role: "assistant",
-          content: "Sorry, I ran into an error. Please try again.",
+          content: fallback,
         };
         return next;
       });
+      if (voiceReplyResolverRef.current) {
+        voiceReplyResolverRef.current(fallback);
+        voiceReplyResolverRef.current = null;
+      }
     }
     setLoading(false);
   };
+
+  const sendMessage = async () => {
+    if (!input.trim() && !attachment) return;
+    const currentInput =
+      input.trim() || (attachment ? "Analyze this" : "");
+    const imageBase64 =
+      attachment && attachment.type === "image" ? attachment.base64 : undefined;
+    const fileBase64 =
+      attachment && attachment.type === "file" ? attachment.base64 : undefined;
+
+    setInput("");
+    setAttachment(null);
+
+    await runChat(currentInput, imageBase64, fileBase64);
+  };
+
+  // ============================================================
+  // VOICE MODE
+  // ============================================================
+  const handleVoiceTranscript = (transcript: string) => {
+    // Fire the chat send; runChat is async
+    runChat(transcript);
+  };
+
+  const getLatestAssistantReply = () =>
+    new Promise<string | null>((resolve) => {
+      // If the last message is already an assistant reply with content, resolve immediately
+      const last = messagesRef.current[messagesRef.current.length - 1];
+      if (last && last.role === "assistant" && last.content) {
+        resolve(last.content);
+        return;
+      }
+      // Otherwise, store the resolver — runChat will call it on done
+      voiceReplyResolverRef.current = resolve;
+      // Safety timeout: 60s
+      setTimeout(() => {
+        if (voiceReplyResolverRef.current === resolve) {
+          voiceReplyResolverRef.current = null;
+          resolve(null);
+        }
+      }, 60_000);
+    });
 
   // ============================================================
   // CHAT ACTIONS
@@ -410,9 +468,7 @@ export default function Dashboard() {
     const newTitle = window.prompt("Rename conversation:");
     if (newTitle && newTitle.trim()) {
       await supabase.from("chats").update({ title: newTitle }).eq("id", id);
-      setChats(
-        chats.map((c) => (c.id === id ? { ...c, title: newTitle } : c))
-      );
+      setChats(chats.map((c) => (c.id === id ? { ...c, title: newTitle } : c)));
     }
     setActiveChatMenu(null);
   };
@@ -463,7 +519,7 @@ export default function Dashboard() {
   // ============================================================
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
-      {/* Voice */}
+      {/* Voice output (inline TTS — the Voice toggle) */}
       {voiceEnabled && latestAssistantMessage && (
         <VoiceOutput
           enabled={voiceEnabled}
@@ -472,6 +528,14 @@ export default function Dashboard() {
           pitch={1}
         />
       )}
+
+      {/* Voice mode overlay */}
+      <VoiceMode
+        open={showVoiceMode}
+        onClose={() => setShowVoiceMode(false)}
+        onTranscript={handleVoiceTranscript}
+        getLatestAssistantReply={getLatestAssistantReply}
+      />
 
       {/* Broadcast */}
       {activeBroadcast && (
@@ -980,7 +1044,6 @@ export default function Dashboard() {
         </div>
 
         <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
-          {/* Attachment preview */}
           {attachment && (
             <div className="mb-3 p-3 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-3">
               {attachment.type === "image" ? (
@@ -1011,7 +1074,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Attachment menu */}
           {showAttachMenu && (
             <AttachmentMenu
               onCamera={handleCamera}
@@ -1021,7 +1083,6 @@ export default function Dashboard() {
             />
           )}
 
-          {/* Modes */}
           <div className="flex gap-2 mb-3 flex-wrap">
             <button
               onClick={() => setThinkMode(!thinkMode)}
@@ -1049,7 +1110,6 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Input */}
           <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-3 flex flex-col gap-2">
             <input
               type="text"
@@ -1088,7 +1148,11 @@ export default function Dashboard() {
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <button className="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
+                <button
+                  onClick={() => setShowVoiceMode(true)}
+                  className="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+                  title="Voice mode"
+                >
                   🎙
                 </button>
                 {input.trim().length > 0 || attachment ? (
@@ -1112,7 +1176,10 @@ export default function Dashboard() {
                     </svg>
                   </button>
                 ) : (
-                  <button className="bg-white text-black px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-zinc-200 transition-colors">
+                  <button
+                    onClick={() => setShowVoiceMode(true)}
+                    className="bg-white text-black px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-zinc-200 transition-colors"
+                  >
                     🎙 Speak
                   </button>
                 )}
