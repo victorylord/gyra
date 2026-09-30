@@ -5,7 +5,7 @@ import SettingsPage from "../SettingsPage";
 import SettingsGroup from "../SettingsGroup";
 import SettingsRow from "../SettingsRow";
 import ConfirmModal from "../ConfirmModal";
-import { supabase } from "../../../../supabase";
+import { supabase } from "@/app/supabase";
 
 function maskEmail(email: string) {
   if (!email || !email.includes("@")) return "—";

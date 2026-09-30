@@ -5,7 +5,7 @@ import SettingsPage from "../SettingsPage";
 import SettingsGroup from "../SettingsGroup";
 import SettingsRow from "../SettingsRow";
 import ConfirmModal from "../ConfirmModal";
-import { supabase, getAccessToken } from "../../supabase";
+import { supabase, getAccessToken } from "@/app/supabase";
 
 type Share = {
   id: string;
