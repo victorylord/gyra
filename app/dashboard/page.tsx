@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "../supabase";
+import { supabase, getAccessToken } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
 import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
-import VoiceMode from  "../components/VoiceMode";
+import VoiceMode from "../components/VoiceMode";
+import MessageContextMenu, {
+  type Action,
+  type MenuState,
+} from "../components/MessageContextMenu";
+import OnboardingModal from "./components/OnboardingModal";
+import ToastContainer, { showToast } from "../components/Toast";
+import { useLongPress } from "../hooks/useLongPress";
 
 // ============================================================
 // MessageContent — renders code blocks with copy buttons
@@ -85,6 +92,52 @@ function MessageContent({ content }: { content: string }) {
 }
 
 // ============================================================
+// Message wrapper with long-press + context menu
+// ============================================================
+function ChatBubble({
+  msg,
+  index,
+  loading,
+  isLast,
+  onOpenMenu,
+  isHighlighted,
+}: {
+  msg: any;
+  index: number;
+  loading: boolean;
+  isLast: boolean;
+  onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void;
+  isHighlighted: boolean;
+}) {
+  const handlers = useLongPress((e) => onOpenMenu(e, index), undefined, {
+    delay: 500,
+  });
+
+  return (
+    <div
+      {...handlers}
+      className={`p-4 rounded-xl max-w-[85%] leading-relaxed select-none md:select-text transition-colors ${
+        msg.role === "user"
+          ? "bg-blue-600 self-end text-white"
+          : "bg-zinc-800 self-start text-zinc-200"
+      } ${isHighlighted ? "ring-2 ring-blue-400" : ""}`}
+    >
+      {msg.role === "assistant" ? (
+        <MessageContent content={msg.content} />
+      ) : (
+        <div className="whitespace-pre-wrap">{msg.content}</div>
+      )}
+      {loading &&
+        isLast &&
+        msg.role === "assistant" &&
+        !msg.content && (
+          <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
+        )}
+    </div>
+  );
+}
+
+// ============================================================
 // Main Dashboard
 // ============================================================
 export default function Dashboard() {
@@ -125,15 +178,49 @@ export default function Dashboard() {
     null
   );
 
+  // Context menu
+  const [menu, setMenu] = useState<MenuState>(null);
+
+  // Feedback
+  const [reactions, setReactions] = useState<Record<number, "like" | "dislike">>(
+    {}
+  );
+
+  // Highlighted message (for regeneration)
+  const [highlighted, setHighlighted] = useState<number | null>(null);
+
+  // Onboarding
+  const [onboardingPrompt, setOnboardingPrompt] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Keep latest messages accessible from voice mode callbacks
   const messagesRef = useRef<any[]>([]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
+  // Persist reactions in localStorage (per-chat)
+  useEffect(() => {
+    if (!activeChatId) return;
+    try {
+      const raw = localStorage.getItem(`gyra:reactions:${activeChatId}`);
+      setReactions(raw ? JSON.parse(raw) : {});
+    } catch {
+      setReactions({});
+    }
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (!activeChatId) return;
+    try {
+      localStorage.setItem(
+        `gyra:reactions:${activeChatId}`,
+        JSON.stringify(reactions)
+      );
+    } catch {}
+  }, [reactions, activeChatId]);
+
   // ============================================================
-  // INIT
+  // INIT + URL prompt param
   // ============================================================
   useEffect(() => {
     const init = async () => {
@@ -171,6 +258,17 @@ export default function Dashboard() {
       } catch (e) {}
     };
     init();
+
+    // Prompt from library via ?prompt=
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const p = params.get("prompt");
+      if (p) {
+        setInput(p);
+        // Clean URL
+        window.history.replaceState({}, "", "/dashboard");
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -283,7 +381,7 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // CORE CHAT SENDER (used by both text input and voice)
+  // CORE CHAT SENDER
   // ============================================================
   const runChat = async (text: string, imageBase64?: string, fileBase64?: string) => {
     if (!text.trim() && !imageBase64 && !fileBase64) return;
@@ -374,7 +472,6 @@ export default function Dashboard() {
               await supabase.from("messages").insert([
                 { chat_id: chatId, role: "assistant", content: fullReply },
               ]);
-              // Resolve any voice-mode waiter
               if (voiceReplyResolverRef.current) {
                 voiceReplyResolverRef.current(fullReply);
                 voiceReplyResolverRef.current = null;
@@ -384,7 +481,6 @@ export default function Dashboard() {
         }
       }
 
-      // Safety: if done never fired, still resolve
       if (voiceReplyResolverRef.current) {
         voiceReplyResolverRef.current(fullReply || null);
         voiceReplyResolverRef.current = null;
@@ -410,8 +506,7 @@ export default function Dashboard() {
 
   const sendMessage = async () => {
     if (!input.trim() && !attachment) return;
-    const currentInput =
-      input.trim() || (attachment ? "Analyze this" : "");
+    const currentInput = input.trim() || (attachment ? "Analyze this" : "");
     const imageBase64 =
       attachment && attachment.type === "image" ? attachment.base64 : undefined;
     const fileBase64 =
@@ -427,21 +522,17 @@ export default function Dashboard() {
   // VOICE MODE
   // ============================================================
   const handleVoiceTranscript = (transcript: string) => {
-    // Fire the chat send; runChat is async
     runChat(transcript);
   };
 
   const getLatestAssistantReply = () =>
     new Promise<string | null>((resolve) => {
-      // If the last message is already an assistant reply with content, resolve immediately
       const last = messagesRef.current[messagesRef.current.length - 1];
       if (last && last.role === "assistant" && last.content) {
         resolve(last.content);
         return;
       }
-      // Otherwise, store the resolver — runChat will call it on done
       voiceReplyResolverRef.current = resolve;
-      // Safety timeout: 60s
       setTimeout(() => {
         if (voiceReplyResolverRef.current === resolve) {
           voiceReplyResolverRef.current = null;
@@ -449,6 +540,140 @@ export default function Dashboard() {
         }
       }, 60_000);
     });
+
+  // ============================================================
+  // CONTEXT MENU HANDLERS
+  // ============================================================
+  const openMenu = (
+    e: React.MouseEvent | React.TouchEvent,
+    index: number
+  ) => {
+    e.preventDefault?.();
+    const point = "touches" in e ? e.touches[0] : (e as React.MouseEvent);
+    const msg = messagesRef.current[index];
+    if (!msg) return;
+    setMenu({
+      x: point.clientX,
+      y: point.clientY,
+      messageIndex: index,
+      role: msg.role,
+      content: msg.content,
+    });
+    // Haptic on mobile
+    if ("vibrate" in navigator) navigator.vibrate?.(10);
+  };
+
+  const handleAction = async (
+    action: Action,
+    index: number,
+    content: string
+  ) => {
+    switch (action) {
+      case "copy": {
+        try {
+          await navigator.clipboard.writeText(content);
+          showToast("Copied to clipboard", "success");
+        } catch {
+          showToast("Copy failed", "error");
+        }
+        break;
+      }
+      case "select": {
+        // Let the user select text natively — briefly enable user-select
+        showToast("Long-press the text to select", "info");
+        break;
+      }
+      case "regenerate": {
+        // Find the user message that prompted this reply
+        const history = messagesRef.current;
+        const userMsg = [...history.slice(0, index)]
+          .reverse()
+          .find((m) => m.role === "user");
+        if (!userMsg) {
+          showToast("Nothing to regenerate", "error");
+          break;
+        }
+        // Remove the assistant reply and everything after it, then resend
+        const trimmed = history.slice(0, index);
+        setMessages(trimmed);
+        setHighlighted(null);
+        showToast("Regenerating…", "info");
+        await runChat(userMsg.content, userMsg.imageBase64, userMsg.fileBase64);
+        break;
+      }
+      case "like": {
+        setReactions((r) => ({ ...r, [index]: "like" }));
+        showToast("Thanks for the feedback", "success");
+        break;
+      }
+      case "dislike": {
+        setReactions((r) => ({ ...r, [index]: "dislike" }));
+        showToast("We'll use this to improve", "info");
+        break;
+      }
+      case "read": {
+        try {
+          if ("speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(content);
+            u.rate = 1.05;
+            window.speechSynthesis.speak(u);
+          }
+        } catch {
+          showToast("Read aloud not supported", "error");
+        }
+        break;
+      }
+      case "share": {
+        if (!activeChatId) {
+          showToast("No active chat to share", "error");
+          break;
+        }
+        try {
+          const token = await getAccessToken();
+          if (!token) {
+            showToast("Please sign in again", "error");
+            break;
+          }
+          const res = await fetch("/api/v1/share", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ chatId: activeChatId }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.id) {
+            showToast("Could not create share link", "error");
+            break;
+          }
+          const url = `${window.location.origin}/s/${data.id}`;
+          try {
+            await navigator.clipboard.writeText(url);
+            showToast("Share link copied!", "success");
+          } catch {
+            showToast(url, "info");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Share failed", "error");
+        }
+        break;
+      }
+      case "report": {
+        const subject = encodeURIComponent("Report a message on Gyra");
+        const body = encodeURIComponent(
+          `Message:\n\n${content}\n\nPlease describe the issue:`
+        );
+        window.open(
+          `mailto:support@gyra.ng?subject=${subject}&body=${body}`,
+          "_blank"
+        );
+        break;
+      }
+    }
+  };
 
   // ============================================================
   // CHAT ACTIONS
@@ -519,7 +744,29 @@ export default function Dashboard() {
   // ============================================================
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
-      {/* Voice output (inline TTS — the Voice toggle) */}
+      {/* Toast host */}
+      <ToastContainer />
+
+      {/* Onboarding (only on first visit) */}
+      <OnboardingModal
+        onUsePrompt={(prompt) => {
+          setInput(prompt);
+          setTimeout(() => {
+            runChat(prompt);
+            setInput("");
+          }, 100);
+        }}
+      />
+
+      {/* Message context menu */}
+      <MessageContextMenu
+        menu={menu}
+        onClose={() => setMenu(null)}
+        onAction={handleAction}
+        reactions={reactions}
+      />
+
+      {/* Voice output */}
       {voiceEnabled && latestAssistantMessage && (
         <VoiceOutput
           enabled={voiceEnabled}
@@ -738,14 +985,17 @@ export default function Dashboard() {
                 label: "Automations",
                 icon: "⚙️",
                 action: () => {
-                window.location.href = "/studio";
-                setIsSidebarOpen(false);
+                  window.location.href = "/studio";
+                  setIsSidebarOpen(false);
                 },
               },
               {
                 label: "Library",
                 icon: "📚",
-                action: () => alert("Library coming soon!"),
+                action: () => {
+                  window.location.href = "/library";
+                  setIsSidebarOpen(false);
+                },
               },
               {
                 label: "Projects",
@@ -1012,34 +1262,38 @@ export default function Dashboard() {
                     G
                   </span>
                 </div>
-                <p className="text-zinc-500 text-sm">
+                <p className="text-zinc-500 text-sm mb-4">
                   Ask anything to get started.
                 </p>
+                <div className="flex flex-wrap gap-2 justify-center max-w-md mx-auto">
+                  {[
+                    "Explain quantum computing like I'm 5",
+                    "Write a cold email to a client",
+                    "Give me 10 business ideas",
+                  ].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => runChat(s)}
+                      className="text-xs bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full px-4 py-2 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
             <div className="w-full flex flex-col gap-4 pb-4">
               {messages.map((msg, i) => (
-                <div
+                <ChatBubble
                   key={i}
-                  className={`p-4 rounded-xl max-w-[85%] leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-blue-600 self-end text-white"
-                      : "bg-zinc-800 self-start text-zinc-200"
-                  }`}
-                >
-                  {msg.role === "assistant" ? (
-                    <MessageContent content={msg.content} />
-                  ) : (
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-                  )}
-                  {loading &&
-                    i === messages.length - 1 &&
-                    msg.role === "assistant" &&
-                    !msg.content && (
-                      <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
-                    )}
-                </div>
+                  msg={msg}
+                  index={i}
+                  loading={loading}
+                  isLast={i === messages.length - 1}
+                  onOpenMenu={openMenu}
+                  isHighlighted={highlighted === i}
+                />
               ))}
               <div ref={messagesEndRef} />
             </div>
