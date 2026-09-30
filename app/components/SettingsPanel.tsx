@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useVoiceSettings, type VoiceId } from "./voiceSettings";
+import { useVoiceSettings } from "./voiceSettings";
+import { useTheme, type ThemeMode } from "./ThemeProvider";
+import SettingsGroup from "./settings/SettingsGroup";
+import SettingsRow from "./settings/SettingsRow";
+import RadioModal from "./settings/RadioModal";
+import VoiceCarousel from "./settings/VoiceCarousel";
+import AccountPage from "./settings/pages/AccountPage";
+import DataControlsPage from "./settings/pages/DataControlsPage";
+import FontSizePage from "./settings/pages/FontSizePage";
+import PersonalizationPage from "./settings/pages/PersonalizationPage";
+import ServiceAgreementPage from "./settings/pages/ServiceAgreementPage";
+import SharedLinksPage from "./settings/pages/SharedLinksPage";
 
 type SettingsPanelProps = {
   user: any;
@@ -9,15 +20,34 @@ type SettingsPanelProps = {
   onLogout: () => void;
 };
 
-const SECTIONS = [
-  { id: "Account", icon: "👤" },
-  { id: "Appearance", icon: "🌗" },
-  { id: "Behavior", icon: "🎯" },
-  { id: "Voice", icon: "🎙️" },
-  { id: "Notifications", icon: "🔔" },
-  { id: "Customize", icon: "🎨" },
-  { id: "Data & Information", icon: "📄" },
-  { id: "Data Controls", icon: "🗄️" },
+type SubPage =
+  | null
+  | "account"
+  | "dataControls"
+  | "fontSize"
+  | "personalization"
+  | "serviceAgreement"
+  | "sharedLinks";
+
+const APP_VERSION = "1.1.0";
+
+const LANGUAGES = [
+  { id: "system", label: "System" },
+  { id: "en", label: "English" },
+  { id: "fr", label: "Français" },
+  { id: "es", label: "Español" },
+  { id: "de", label: "Deutsch" },
+  { id: "pt", label: "Português" },
+  { id: "ar", label: "العربية" },
+  { id: "hi", label: "हिन्दी" },
+  { id: "yo", label: "Yoruba" },
+  { id: "ig", label: "Igbo" },
+  { id: "ha", label: "Hausa" },
+  { id: "sw", label: "Swahili" },
+  { id: "zh", label: "中文" },
+  { id: "ja", label: "日本語" },
+  { id: "ko", label: "한국어" },
+  { id: "ru", label: "Русский" },
 ];
 
 export default function SettingsPanel({
@@ -25,75 +55,71 @@ export default function SettingsPanel({
   onClose,
   onLogout,
 }: SettingsPanelProps) {
-  const [activeSection, setActiveSection] = useState("Account");
+  const { theme: themeMode, setTheme } = useTheme();
+  const { settings: voiceSettings } = useVoiceSettings();
 
-  // Local settings state
-  const [appearance, setAppearance] = useState<"system" | "light" | "dark">(
-    "system"
-  );
-  const [behavior, setBehavior] = useState("Balanced");
-  const [language, setLanguage] = useState("English");
-  const [birthYear, setBirthYear] = useState("2000");
-  const [notifReplies, setNotifReplies] = useState(true);
-  const [notifProduct, setNotifProduct] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [customPersonality, setCustomPersonality] = useState("Default");
+  const [subPage, setSubPage] = useState<SubPage>(null);
+  const [language, setLanguage] = useState("system");
+  const [mainLanguage, setMainLanguage] = useState("system");
 
-  // Shared voice settings
-  const { settings: voiceSettings, update: updateVoice } = useVoiceSettings();
-  const [testing, setTesting] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showAppearanceModal, setShowAppearanceModal] = useState(false);
+  const [showMainLanguageModal, setShowMainLanguageModal] = useState(false);
+  const [showVoiceCarousel, setShowVoiceCarousel] = useState(false);
 
-  // Apply theme
   useEffect(() => {
-    const root = document.documentElement;
-    if (appearance === "light") {
-      root.style.colorScheme = "light";
-      document.body.style.background = "#ffffff";
-      document.body.style.color = "#000000";
-    } else if (appearance === "dark") {
-      root.style.colorScheme = "dark";
-      document.body.style.background = "#000000";
-      document.body.style.color = "#ffffff";
-    } else {
-      root.style.colorScheme = "system";
-      document.body.style.background = "";
-      document.body.style.color = "";
-    }
-  }, [appearance]);
+    try {
+      const l = localStorage.getItem("gyra:language");
+      const ml = localStorage.getItem("gyra:main-language");
+      if (l) setLanguage(l);
+      if (ml) setMainLanguage(ml);
+    } catch {}
+  }, []);
 
-  // Speak a test line using the currently-selected voice
-  const testVoice = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("Your browser does not support voice output.");
-      return;
-    }
-    window.speechSynthesis.cancel();
-    setTesting(true);
-
-    const sample =
-      voiceSettings.voiceId === "james"
-        ? "Hi, I'm James. I'm ready to help."
-        : "Hi, I'm Ara. I'm ready to help.";
-
-    const u = new SpeechSynthesisUtterance(sample);
-    u.rate = voiceSettings.rate;
-    u.pitch = voiceSettings.pitch;
-    u.onend = () => setTesting(false);
-    u.onerror = () => setTesting(false);
-    window.speechSynthesis.speak(u);
+  const saveLanguage = (v: string) => {
+    setLanguage(v);
+    try {
+      localStorage.setItem("gyra:language", v);
+    } catch {}
   };
 
+  const saveMainLanguage = (v: string) => {
+    setMainLanguage(v);
+    try {
+      localStorage.setItem("gyra:main-language", v);
+    } catch {}
+  };
+
+  const languageLabel =
+    LANGUAGES.find((l) => l.id === language)?.label || "System";
+
+  const mainLanguageLabel =
+    mainLanguage === "system"
+      ? "Use App language"
+      : LANGUAGES.find((l) => l.id === mainLanguage)?.label || "Use App language";
+
+  const appearanceLabel =
+    themeMode === "system"
+      ? "System"
+      : themeMode === "light"
+      ? "Light"
+      : "Dark";
+
+  const voiceName =
+    voiceSettings.voiceId.charAt(0).toUpperCase() +
+    voiceSettings.voiceId.slice(1);
+
   return (
-    <div className="absolute inset-0 bg-black z-[70] flex flex-col overflow-hidden">
-      {/* TOP BAR */}
-      <div className="flex items-center gap-4 px-4 py-4 border-b border-zinc-800/50 shrink-0">
+    <div className="absolute inset-0 bg-[var(--background)] text-[var(--foreground)] z-[70] flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-4 px-4 py-4 shrink-0">
         <button
           onClick={onClose}
-          className="text-zinc-400 hover:text-white transition-colors"
+          className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-2)] transition-colors"
           aria-label="Close settings"
         >
           <svg
-            className="w-6 h-6"
+            className="w-5 h-5"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -102,619 +128,187 @@ export default function SettingsPanel({
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="2"
-              d="M6 18L18 6M6 6l12 12"
+              d="M15 19l-7-7 7-7"
             />
           </svg>
         </button>
-        <h2 className="text-xl font-bold tracking-tight">Settings</h2>
+        <h1 className="text-base font-semibold tracking-tight">Settings</h1>
       </div>
 
-      {/* BODY */}
-      <div className="flex-1 flex overflow-hidden">
-        <aside className="w-48 md:w-56 border-r border-zinc-800/50 overflow-y-auto shrink-0 bg-black">
-          <div className="py-3">
-            {SECTIONS.map((section) => (
-              <button
-                key={section.id}
-                onClick={() => setActiveSection(section.id)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
-                  activeSection === section.id
-                    ? "bg-zinc-900 text-white font-medium"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-900/50"
-                }`}
-              >
-                <span className="text-base">{section.icon}</span>
-                <span className="truncate">{section.id}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-4 pb-10">
+        <div className="max-w-2xl mx-auto">
+          {/* Profile */}
+          <SettingsGroup title="Profile">
+            <SettingsRow
+              icon={<span>👤</span>}
+              label="Account settings"
+              onClick={() => setSubPage("account")}
+            />
+            <SettingsRow
+              icon={<span>🗄️</span>}
+              label="Data controls"
+              onClick={() => setSubPage("dataControls")}
+            />
+          </SettingsGroup>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          {/* ACCOUNT */}
-          {activeSection === "Account" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-6">
-                Account
-              </h3>
+          {/* App */}
+          <SettingsGroup title="App">
+            <SettingsRow
+              icon={<span>🌐</span>}
+              label="Language"
+              value={languageLabel}
+              onClick={() => setShowLanguageModal(true)}
+            />
+            <SettingsRow
+              icon={<span>🌗</span>}
+              label="Appearance"
+              value={appearanceLabel}
+              onClick={() => setShowAppearanceModal(true)}
+            />
+            <SettingsRow
+              icon={<span>🅰️</span>}
+              label="Font size"
+              onClick={() => setSubPage("fontSize")}
+            />
+            <SettingsRow
+              icon={<span>✨</span>}
+              label="Personalization"
+              onClick={() => setSubPage("personalization")}
+            />
+          </SettingsGroup>
 
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-lg font-bold text-white shrink-0">
-                  {user?.email?.[0]?.toUpperCase() || "V"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">
-                    {user?.email?.split("@")[0] || "User"}
-                  </p>
-                  <p className="text-xs text-zinc-500 truncate">
-                    {user?.email || ""}
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    alert(
-                      "Account management coming soon. Your account is secure."
-                    )
-                  }
-                  className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium px-4 py-2 rounded-full transition-colors shrink-0"
-                >
-                  Manage
-                </button>
-              </div>
+          {/* Audio */}
+          <SettingsGroup title="Audio">
+            <SettingsRow
+              icon={<span>🎙️</span>}
+              label="Main language"
+              value={mainLanguageLabel}
+              onClick={() => setShowMainLanguageModal(true)}
+            />
+            <SettingsRow
+              icon={<span>🔊</span>}
+              label="Voice"
+              value={voiceName}
+              onClick={() => setShowVoiceCarousel(true)}
+            />
+          </SettingsGroup>
+          <p className="text-xs text-[var(--muted)] -mt-4 mb-6 px-1 leading-relaxed">
+            Select the primary language you use for voice input to achieve
+            better recognition results.
+          </p>
 
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-black border border-zinc-800 flex items-center justify-center shrink-0">
-                  <span className="text-white text-lg font-bold">𝕏</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm">X Account</p>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Link your X account for personalized features.
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    alert("X account integration coming in a future update.")
-                  }
-                  className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium px-4 py-2 rounded-full transition-colors shrink-0"
-                >
-                  Connect
-                </button>
-              </div>
+          {/* About */}
+          <SettingsGroup title="About">
+            <SettingsRow
+              icon={<span>ℹ️</span>}
+              label="Check for updates"
+              value={`${APP_VERSION} (latest)`}
+              showChevron={false}
+            />
+            <SettingsRow
+              icon={<span>📄</span>}
+              label="Service agreement"
+              onClick={() => setSubPage("serviceAgreement")}
+            />
+          </SettingsGroup>
 
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl divide-y divide-zinc-800">
-                <div className="p-5 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-sm">Language</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Currently: {language}
-                    </p>
-                  </div>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="bg-zinc-900 border border-zinc-800 rounded-full text-xs px-3 py-1.5 outline-none focus:border-blue-500"
-                  >
-                    {[
-                      "English",
-                      "Español",
-                      "Français",
-                      "Deutsch",
-                      "Português",
-                      "Italiano",
-                      "العربية",
-                      "हिन्दी",
-                      "日本語",
-                      "한국어",
-                      "中文",
-                      "Русский",
-                      "Yoruba",
-                      "Igbo",
-                      "Hausa",
-                      "Swahili",
-                      "Zulu",
-                      "Afrikaans",
-                    ].map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          {/* Help */}
+          <SettingsGroup>
+            <SettingsRow
+              icon={<span>❓</span>}
+              label="Help & Feedback"
+              onClick={() =>
+                window.open("mailto:support@gyra.ng", "_blank")
+              }
+            />
+          </SettingsGroup>
 
-                <div className="p-5 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-sm">Birth Year</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Used for personalization
-                    </p>
-                  </div>
-                  <input
-                    type="text"
-                    value={birthYear}
-                    onChange={(e) => setBirthYear(e.target.value)}
-                    maxLength={4}
-                    className="w-20 bg-zinc-900 border border-zinc-800 rounded-full text-xs px-3 py-1.5 outline-none focus:border-blue-500 text-center"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Log out */}
+          <SettingsGroup>
+            <SettingsRow
+              icon={<span>↪️</span>}
+              label="Log out"
+              danger
+              onClick={() => {
+                if (confirm("Log out of Gyra on this device?")) onLogout();
+              }}
+            />
+          </SettingsGroup>
 
-          {/* APPEARANCE */}
-          {activeSection === "Appearance" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Appearance
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Choose how Gyra looks on your screen.
-              </p>
-
-              <div className="flex flex-col gap-3">
-                {[
-                  {
-                    id: "system" as const,
-                    title: "System",
-                    desc: "Follow your device settings",
-                    preview: ["bg-white", "bg-black"],
-                  },
-                  {
-                    id: "light" as const,
-                    title: "Light",
-                    desc: "Bright and clean",
-                    preview: ["bg-white", "bg-zinc-200"],
-                  },
-                  {
-                    id: "dark" as const,
-                    title: "Dark",
-                    desc: "Dim and easy on the eyes",
-                    preview: ["bg-zinc-900", "bg-black"],
-                  },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setAppearance(opt.id)}
-                    className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left ${
-                      appearance === opt.id
-                        ? "border-blue-500 bg-blue-500/5"
-                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
-                    }`}
-                  >
-                    <div className="w-14 h-14 rounded-xl overflow-hidden border border-zinc-800 flex shrink-0">
-                      <div className={`flex-1 ${opt.preview[0]}`} />
-                      <div className={`flex-1 ${opt.preview[1]}`} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm">{opt.title}</p>
-                      <p className="text-xs text-zinc-500 mt-1">{opt.desc}</p>
-                    </div>
-                    {appearance === opt.id && (
-                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                        <svg
-                          className="w-3.5 h-3.5 text-white"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="3"
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              <p className="text-xs text-zinc-600 mt-6">
-                Theme changes apply immediately.
-              </p>
-            </div>
-          )}
-
-          {/* BEHAVIOR */}
-          {activeSection === "Behavior" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Behavior
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Choose how Gyra responds to you.
-              </p>
-
-              <div className="flex flex-col gap-3">
-                {[
-                  { id: "Concise", desc: "Short, direct answers" },
-                  { id: "Balanced", desc: "A mix of detail and brevity" },
-                  { id: "Detailed", desc: "Long, thorough answers" },
-                  {
-                    id: "Creative",
-                    desc: "More expressive and imaginative",
-                  },
-                  { id: "Professional", desc: "Formal and precise" },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setBehavior(opt.id)}
-                    className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left ${
-                      behavior === opt.id
-                        ? "border-blue-500 bg-blue-500/5"
-                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm">{opt.id}</p>
-                      <p className="text-xs text-zinc-500 mt-1">{opt.desc}</p>
-                    </div>
-                    {behavior === opt.id && (
-                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                        <svg
-                          className="w-3.5 h-3.5 text-white"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="3"
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* VOICE — NEW SECTION */}
-          {activeSection === "Voice" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Voice
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Choose how Gyra sounds and speaks.
-              </p>
-
-              {/* Voice picker */}
-              <p className="text-sm font-medium mb-3">Voice</p>
-              <div className="flex flex-col gap-3 mb-8">
-                {[
-                  {
-                    id: "ara" as VoiceId,
-                    name: "Ara",
-                    desc: "Warm, clear, and natural",
-                    emoji: "👩",
-                  },
-                  {
-                    id: "james" as VoiceId,
-                    name: "James",
-                    desc: "Deep, confident, and calm",
-                    emoji: "👨",
-                  },
-                ].map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => updateVoice({ voiceId: v.id })}
-                    className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left ${
-                      voiceSettings.voiceId === v.id
-                        ? "border-blue-500 bg-blue-500/5"
-                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
-                    }`}
-                  >
-                    <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-2xl shrink-0">
-                      {v.emoji}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm">{v.name}</p>
-                      <p className="text-xs text-zinc-500 mt-1">{v.desc}</p>
-                    </div>
-                    {voiceSettings.voiceId === v.id && (
-                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                        <svg
-                          className="w-3.5 h-3.5 text-white"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="3"
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              {/* Rate */}
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-medium text-sm">Speaking rate</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      How fast Gyra speaks
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono text-blue-400">
-                    {voiceSettings.rate.toFixed(2)}×
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.6}
-                  max={1.6}
-                  step={0.05}
-                  value={voiceSettings.rate}
-                  onChange={(e) =>
-                    updateVoice({ rate: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-blue-500"
-                />
-              </div>
-
-              {/* Pitch */}
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-3">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-medium text-sm">Pitch</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Higher or lower tone
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono text-blue-400">
-                    {voiceSettings.pitch.toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.5}
-                  max={1.6}
-                  step={0.05}
-                  value={voiceSettings.pitch}
-                  onChange={(e) =>
-                    updateVoice({ pitch: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-blue-500"
-                />
-              </div>
-
-              {/* Test */}
-              <button
-                onClick={testVoice}
-                disabled={testing}
-                className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-60"
-              >
-                {testing ? "Speaking…" : "🔊 Test voice"}
-              </button>
-
-              <p className="text-xs text-zinc-600 mt-6">
-                Voice output uses your browser's built-in speech engine. Which
-                voice plays depends on what's installed on your device.
-              </p>
-            </div>
-          )}
-
-          {/* NOTIFICATIONS */}
-          {activeSection === "Notifications" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Notifications
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Control what Gyra tells you about.
-              </p>
-
-              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl divide-y divide-zinc-800">
-                {[
-                  {
-                    label: "Response notifications",
-                    desc: "Get notified when Gyra finishes thinking",
-                    value: notifReplies,
-                    set: setNotifReplies,
-                  },
-                  {
-                    label: "Product updates",
-                    desc: "New features and announcements",
-                    value: notifProduct,
-                    set: setNotifProduct,
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-center justify-between p-5 gap-4"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{item.label}</p>
-                      <p className="text-xs text-zinc-500 mt-1">{item.desc}</p>
-                    </div>
-                    <button
-                      onClick={() => item.set(!item.value)}
-                      className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
-                        item.value ? "bg-white" : "bg-zinc-700"
-                      }`}
-                    >
-                      <div
-                        className={`w-5 h-5 rounded-full bg-black absolute top-0.5 transition-transform ${
-                          item.value ? "translate-x-6" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <p className="text-xs text-zinc-600 mt-6">
-                Notifications currently work on mobile only. Web push coming
-                soon.
-              </p>
-            </div>
-          )}
-
-          {/* CUSTOMIZE */}
-          {activeSection === "Customize" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Customize Gyra
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Personalize how Gyra behaves.
-              </p>
-
-              <p className="text-sm font-medium mb-3">Personality</p>
-              <div className="flex flex-wrap gap-2 mb-8">
-                {["Default", "Friendly", "Witty", "Direct", "Patient"].map(
-                  (p) => (
-                    <button
-                      key={p}
-                      onClick={() => setCustomPersonality(p)}
-                      className={`px-4 py-2 rounded-full text-sm border transition-all ${
-                        customPersonality === p
-                          ? "bg-white text-black border-white"
-                          : "bg-transparent text-zinc-400 border-zinc-800 hover:border-zinc-600 hover:text-white"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  )
-                )}
-              </div>
-
-              <p className="text-sm font-medium mb-3">Custom instructions</p>
-              <textarea
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                rows={5}
-                placeholder="Tell Gyra how to respond to you. Example: 'Keep answers short and skip the disclaimers.'"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 resize-none"
-              />
-              <p className="text-xs text-zinc-600 mt-3">
-                These apply to all new conversations.
-              </p>
-            </div>
-          )}
-
-          {/* DATA & INFORMATION */}
-          {activeSection === "Data & Information" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-6">
-                Data & Information
-              </h3>
-
-              <div className="flex flex-col gap-3">
-                <a
-                  href="/terms"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-5 bg-zinc-950 border border-zinc-800 rounded-2xl hover:border-zinc-600 transition-colors"
-                >
-                  <div>
-                    <p className="font-medium text-sm">Terms of Use</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Legal terms for using Gyra
-                    </p>
-                  </div>
-                  <span className="text-zinc-600">↗</span>
-                </a>
-
-                <a
-                  href="/privacy"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-5 bg-zinc-950 border border-zinc-800 rounded-2xl hover:border-zinc-600 transition-colors"
-                >
-                  <div>
-                    <p className="font-medium text-sm">Privacy Policy</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      How we handle your data
-                    </p>
-                  </div>
-                  <span className="text-zinc-600">↗</span>
-                </a>
-
-                <button
-                  onClick={() =>
-                    window.open("mailto:support@gyra.ng", "_blank")
-                  }
-                  className="flex items-center justify-between p-5 bg-zinc-950 border border-zinc-800 rounded-2xl hover:border-zinc-600 transition-colors text-left"
-                >
-                  <div>
-                    <p className="font-medium text-sm">Report a Problem</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Email support@gyra.ng
-                    </p>
-                  </div>
-                  <span className="text-zinc-600">↗</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* DATA CONTROLS */}
-          {activeSection === "Data Controls" && (
-            <div className="max-w-2xl">
-              <h3 className="text-2xl font-bold tracking-tight mb-2">
-                Data Controls
-              </h3>
-              <p className="text-sm text-zinc-500 mb-8">
-                Manage your data and conversations.
-              </p>
-
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() =>
-                    alert(
-                      "Export coming soon. Your data is always available to you."
-                    )
-                  }
-                  className="flex items-center justify-between p-5 bg-zinc-950 border border-zinc-800 rounded-2xl hover:border-zinc-600 transition-colors text-left"
-                >
-                  <div>
-                    <p className="font-medium text-sm">Export your data</p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Download all your conversations
-                    </p>
-                  </div>
-                  <span className="text-zinc-600">→</span>
-                </button>
-
-                <button
-                  onClick={async () => {
-                    if (
-                      !confirm(
-                        "Sign out of Gyra? You can sign back in anytime."
-                      )
-                    )
-                      return;
-                    onLogout();
-                  }}
-                  className="flex items-center justify-between p-5 bg-zinc-950 border border-zinc-800 rounded-2xl hover:border-red-600/50 transition-colors text-left"
-                >
-                  <div>
-                    <p className="font-medium text-sm text-red-400">
-                      Sign out
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Log out of your account on this device
-                    </p>
-                  </div>
-                  <span className="text-zinc-600">→</span>
-                </button>
-              </div>
-            </div>
-          )}
+          <p className="text-center text-xs text-[var(--muted)] mt-6 px-4 leading-relaxed">
+            Gyra is built by Genvia AI Company. Content is AI-generated and
+            may be inaccurate — verify important information.
+          </p>
         </div>
       </div>
+
+      {/* Modals */}
+      <RadioModal
+        open={showLanguageModal}
+        title="Language"
+        icon="🌐"
+        options={LANGUAGES}
+        value={language}
+        onSelect={saveLanguage}
+        onClose={() => setShowLanguageModal(false)}
+        onConfirm={() => setShowLanguageModal(false)}
+      />
+
+      <RadioModal<ThemeMode>
+        open={showAppearanceModal}
+        title="Appearance"
+        options={[
+          { id: "system", label: "System" },
+          { id: "light", label: "Light" },
+          { id: "dark", label: "Dark" },
+        ]}
+        value={themeMode}
+        onSelect={(v) => setTheme(v)}
+        onClose={() => setShowAppearanceModal(false)}
+        onConfirm={() => setShowAppearanceModal(false)}
+      />
+
+      <RadioModal
+        open={showMainLanguageModal}
+        title="Main language"
+        icon="🎙️"
+        options={[
+          { id: "system", label: "Use App language" },
+          ...LANGUAGES.filter((l) => l.id !== "system"),
+        ]}
+        value={mainLanguage}
+        onSelect={saveMainLanguage}
+        onClose={() => setShowMainLanguageModal(false)}
+        onConfirm={() => setShowMainLanguageModal(false)}
+      />
+
+      {showVoiceCarousel && (
+        <VoiceCarousel onConfirm={() => setShowVoiceCarousel(false)} />
+      )}
+
+      {/* Sub-pages */}
+      {subPage === "account" && (
+        <AccountPage onBack={() => setSubPage(null)} />
+      )}
+      {subPage === "dataControls" && (
+        <DataControlsPage
+          onBack={() => setSubPage(null)}
+          onOpenSharedLinks={() => setSubPage("sharedLinks")}
+        />
+      )}
+      {subPage === "fontSize" && (
+        <FontSizePage onBack={() => setSubPage(null)} />
+      )}
+      {subPage === "personalization" && (
+        <PersonalizationPage onBack={() => setSubPage(null)} />
+      )}
+      {subPage === "serviceAgreement" && (
+        <ServiceAgreementPage onBack={() => setSubPage(null)} />
+      )}
+      {subPage === "sharedLinks" && (
+        <SharedLinksPage onBack={() => setSubPage("dataControls")} />
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type VoiceId = "ara" | "james";
+export type VoiceId = "ara" | "james" | "nova" | "sage";
 
 export type VoiceSettings = {
   voiceId: VoiceId;
@@ -18,6 +18,8 @@ const DEFAULTS: VoiceSettings = {
   pitch: 1,
 };
 
+const VALID_IDS: VoiceId[] = ["ara", "james", "nova", "sage"];
+
 function read(): VoiceSettings {
   if (typeof window === "undefined") return DEFAULTS;
   try {
@@ -25,7 +27,7 @@ function read(): VoiceSettings {
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw);
     return {
-      voiceId: parsed.voiceId === "james" ? "james" : "ara",
+      voiceId: VALID_IDS.includes(parsed.voiceId) ? parsed.voiceId : "ara",
       rate: typeof parsed.rate === "number" ? parsed.rate : DEFAULTS.rate,
       pitch: typeof parsed.pitch === "number" ? parsed.pitch : DEFAULTS.pitch,
     };
@@ -55,13 +57,11 @@ export function useVoiceSettings() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       } catch {}
-      // Also broadcast to same-tab listeners
       window.dispatchEvent(new Event("gyra:voice-settings-changed"));
       return next;
     });
   };
 
-  // Listen for same-tab changes from other components
   useEffect(() => {
     const onChange = () => setSettings(read());
     window.addEventListener("gyra:voice-settings-changed", onChange);
@@ -72,13 +72,6 @@ export function useVoiceSettings() {
   return { settings, update, loaded };
 }
 
-/**
- * Resolve a browser SpeechSynthesis voice for a given Gyra voice ID.
- * Browser voice names vary wildly per OS/browser, so we try:
- *   1. Exact alias matches (per platform)
- *   2. Fuzzy keyword matches
- *   3. English fallback
- */
 export function resolveVoice(
   voices: SpeechSynthesisVoice[],
   voiceId: VoiceId
@@ -106,6 +99,20 @@ export function resolveVoice(
       /Microsoft David/i,
       /Male/i,
       /James/i,
+    ],
+    nova: [
+      /Microsoft Michelle Online \(Natural\)/i,
+      /Google UK English Female/i,
+      /Microsoft Zira/i,
+      /Female/i,
+      /Nova/i,
+    ],
+    sage: [
+      /Microsoft Eric Online \(Natural\)/i,
+      /Google US English/i,
+      /Microsoft David/i,
+      /Male/i,
+      /Sage/i,
     ],
   };
 
