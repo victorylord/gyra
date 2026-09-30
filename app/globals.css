@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind v4 dark mode via class strategy */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================================================
-   Design tokens — light theme
+   Design tokens — light theme (default)
    ============================================================ */
 :root {
   --background: #f7f7f8;
@@ -19,6 +20,9 @@
   --font-scale: 1;
 }
 
+/* ============================================================
+   Design tokens — dark theme
+   ============================================================ */
 .dark {
   --background: #000000;
   --foreground: #ffffff;
@@ -32,6 +36,9 @@
   --ring: #1e40af;
 }
 
+/* ============================================================
+   Base
+   ============================================================ */
 html {
   color-scheme: light;
   font-size: calc(16px * var(--font-scale, 1));
@@ -61,6 +68,9 @@ body {
   transition: none !important;
 }
 
+/* ============================================================
+   Utility classes built on tokens
+   ============================================================ */
 .surface {
   background: var(--background);
   color: var(--foreground);

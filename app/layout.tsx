@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ThemeProvider } from "./components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "Gyra — Intelligence, Simplified.",
@@ -47,7 +48,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f7f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -78,10 +82,7 @@ const JSON_LD = {
       foundingDate: "2026",
       description:
         "Genvia AI Company builds Gyra, an intelligent, simplified AI assistant.",
-      sameAs: [
-        "https://t.me/Gyra_AiBot",
-        "https://t.me/GenviaNews",
-      ],
+      sameAs: ["https://t.me/Gyra_AiBot", "https://t.me/GenviaNews"],
     },
     {
       "@type": "Person",
@@ -126,20 +127,40 @@ const JSON_LD = {
   ],
 };
 
+// Runs before React hydrates — prevents flash of wrong theme
+const THEME_SCRIPT = `
+(function() {
+  try {
+    var stored = localStorage.getItem('gyra:theme');
+    var isDark;
+    if (stored === 'light') isDark = false;
+    else if (stored === 'dark') isDark = true;
+    else isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (isDark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  } catch (e) {
+    document.documentElement.classList.add('dark');
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
         />
       </head>
-      <body className="bg-black text-white antialiased">{children}</body>
+      <body className="antialiased surface">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
