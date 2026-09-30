@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useVoiceSettings, resolveVoice } from "./voiceSettings";
+import {
+  useVoiceSettings,
+  resolveVoice,
+  type VoiceId,
+} from "./voiceSettings";
 
 type VoiceModeState =
   | "idle"
@@ -18,9 +22,10 @@ type VoiceModeProps = {
   getLatestAssistantReply: () => Promise<string | null>;
 };
 
-// ---------- Tuning ----------
-const MAX_RECORD_MS = 180_000; // 3 minutes hard cap, then it auto-sends
-const MIN_BLOB_BYTES = 2000;
+const SILENCE_RMS = 0.02;
+const SILENCE_MS = 1400;
+const MIN_SPEECH_MS = 400;
+const MAX_RECORD_MS = 60_000;
 
 export default function VoiceMode({
   open,
@@ -32,9 +37,6 @@ export default function VoiceMode({
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [replyText, setReplyText] = useState<string>("");
-  const [volume, setVolume] = useState(0);
-  const [seconds, setSeconds] = useState(0);
-  const [debugInfo, setDebugInfo] = useState<string>("");
   const { settings } = useVoiceSettings();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -44,22 +46,24 @@ export default function VoiceMode({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const rafRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechStartRef = useRef<number>(0);
   const hardStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef<boolean>(false);
   const openRef = useRef<boolean>(open);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     openRef.current = open;
   }, [open]);
 
+  // ---------- cleanup ----------
   const teardownAudio = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = null;
     if (hardStopRef.current) clearTimeout(hardStopRef.current);
     hardStopRef.current = null;
-    if (tickRef.current) clearInterval(tickRef.current);
-    tickRef.current = null;
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state !== "inactive"
@@ -78,7 +82,6 @@ export default function VoiceMode({
     }
     audioCtxRef.current = null;
     analyserRef.current = null;
-    setVolume(0);
   }, []);
 
   useEffect(() => {
@@ -88,8 +91,6 @@ export default function VoiceMode({
       setPartial("");
       setReplyText("");
       setError(null);
-      setSeconds(0);
-      setDebugInfo("");
     }
   }, [open, teardownAudio]);
 
@@ -122,23 +123,22 @@ export default function VoiceMode({
       rafRef.current = requestAnimationFrame(loop);
       analyser.getByteFrequencyData(data);
 
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) sum += data[i];
-      setVolume(sum / bufferLength / 255);
-
       ctx.clearRect(0, 0, W, H);
+
       const barCount = 64;
       const step = Math.max(1, Math.floor(bufferLength / barCount));
       const barW = W / barCount;
       const gap = 2;
 
       for (let i = 0; i < barCount; i++) {
-        let s = 0;
-        for (let j = 0; j < step; j++) s += data[i * step + j];
-        const a = s / step / 255;
-        const h = Math.max(4, a * H * 0.9);
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += data[i * step + j];
+        const avg = sum / step / 255;
+
+        const h = Math.max(4, avg * H * 0.9);
         const x = i * barW + gap / 2;
         const y = (H - h) / 2;
+
         const grad = ctx.createLinearGradient(0, y, 0, y + h);
         grad.addColorStop(0, "rgba(96, 165, 250, 1)");
         grad.addColorStop(0.5, "rgba(59, 130, 246, 1)");
@@ -158,6 +158,7 @@ export default function VoiceMode({
     loop();
   }, []);
 
+  // ---------- stop recording ----------
   const stopRecording = useCallback(() => {
     if (stoppedRef.current) return;
     stoppedRef.current = true;
@@ -171,14 +172,16 @@ export default function VoiceMode({
     }
   }, []);
 
+  // ---------- speak ----------
   const speakText = useCallback(
-    (text: string, voiceId: "ara" | "james", rate: number, pitch: number) =>
+    (text: string, voiceId: VoiceId, rate: number, pitch: number) =>
       new Promise<void>((resolve) => {
         if (typeof window === "undefined" || !("speechSynthesis" in window)) {
           resolve();
           return;
         }
         window.speechSynthesis.cancel();
+
         const doSpeak = () => {
           const u = new SpeechSynthesisUtterance(text);
           u.rate = rate;
@@ -192,6 +195,7 @@ export default function VoiceMode({
           u.onerror = () => resolve();
           window.speechSynthesis.speak(u);
         };
+
         const voices = window.speechSynthesis.getVoices();
         if (voices.length === 0) {
           const onVoices = () => {
@@ -212,36 +216,26 @@ export default function VoiceMode({
     []
   );
 
+  // ---------- start recording ----------
   const startListening = useCallback(async () => {
     setError(null);
     setPartial("");
     setReplyText("");
-    setDebugInfo("");
-    setSeconds(0);
     stoppedRef.current = false;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
       const AudioCtx =
         window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx: AudioContext = new AudioCtx();
       audioCtxRef.current = audioCtx;
-      if (audioCtx.state === "suspended") {
-        await audioCtx.resume().catch(() => {});
-      }
 
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.7;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.75;
       source.connect(analyser);
       analyserRef.current = analyser;
 
@@ -278,12 +272,8 @@ export default function VoiceMode({
         });
         chunksRef.current = [];
 
-        setDebugInfo(`Recorded ${(blob.size / 1024).toFixed(1)} KB`);
-
-        if (blob.size < MIN_BLOB_BYTES) {
-          setError(
-            `Recording was too small (${(blob.size / 1024).toFixed(1)} KB). Try again and speak a bit longer.`
-          );
+        if (blob.size < 1000) {
+          setError("That was too short — try again.");
           setState("error");
           teardownAudio();
           return;
@@ -304,23 +294,12 @@ export default function VoiceMode({
             method: "POST",
             body: form,
           });
-
-          const rawText = await res.text();
-          let data: any = {};
-          try {
-            data = JSON.parse(rawText);
-          } catch {
-            data = { raw: rawText };
-          }
-
-          setDebugInfo(
-            `STT ${res.status}${data?.provider ? ` · ${data.provider}` : ""}`
-          );
+          const data = await res.json().catch(() => ({}));
 
           if (!res.ok || !data?.text) {
             setError(
               data?.error?.message ||
-                `Transcribe failed (HTTP ${res.status}).`
+                "Couldn't transcribe that. Please try again."
             );
             setState("error");
             teardownAudio();
@@ -328,12 +307,6 @@ export default function VoiceMode({
           }
 
           const transcript = String(data.text).trim();
-          if (!transcript) {
-            setError("I couldn't hear any words. Try again.");
-            setState("error");
-            teardownAudio();
-            return;
-          }
           setPartial(transcript);
 
           setState("thinking");
@@ -361,23 +334,55 @@ export default function VoiceMode({
           setState("idle");
           setTimeout(() => {
             if (openRef.current) startListening();
-          }, 700);
-        } catch (err: any) {
+          }, 400);
+        } catch (err) {
           console.error(err);
-          setError(err?.message || "Something went wrong. Please try again.");
+          setError("Something went wrong. Please try again.");
           setState("error");
           teardownAudio();
         }
       };
 
-      recorder.start(250);
+      recorder.start();
       setState("listening");
+      speechStartRef.current = 0;
+
       drawBars();
 
-      // Simple seconds counter so user knows how long they've been talking
-      tickRef.current = setInterval(() => {
-        setSeconds((s) => s + 1);
-      }, 1000);
+      const detectSilence = () => {
+        if (!analyserRef.current || stoppedRef.current) return;
+        const buf = new Uint8Array(analyserRef.current.fftSize);
+        analyserRef.current.getByteTimeDomainData(buf);
+
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+
+        if (rms > SILENCE_RMS) {
+          if (speechStartRef.current === 0)
+            speechStartRef.current = Date.now();
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        } else {
+          const spokeLongEnough =
+            speechStartRef.current > 0 &&
+            Date.now() - speechStartRef.current > MIN_SPEECH_MS;
+
+          if (spokeLongEnough && !silenceTimerRef.current) {
+            silenceTimerRef.current = setTimeout(() => {
+              stopRecording();
+            }, SILENCE_MS);
+          }
+        }
+
+        requestAnimationFrame(detectSilence);
+      };
+      requestAnimationFrame(detectSilence);
 
       hardStopRef.current = setTimeout(() => stopRecording(), MAX_RECORD_MS);
     } catch (err: any) {
@@ -400,6 +405,7 @@ export default function VoiceMode({
     speakText,
   ]);
 
+  // ---------- cancel ----------
   const handleCancel = () => {
     stoppedRef.current = true;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -409,6 +415,7 @@ export default function VoiceMode({
     onClose();
   };
 
+  // ---------- open → auto start ----------
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => startListening(), 200);
@@ -422,7 +429,7 @@ export default function VoiceMode({
   const statusLabel = (() => {
     switch (state) {
       case "listening":
-        return `Recording… ${seconds}s — tap ✓ when done`;
+        return "Listening…";
       case "transcribing":
         return "Understanding…";
       case "thinking":
@@ -438,6 +445,7 @@ export default function VoiceMode({
 
   return (
     <div className="fixed inset-0 z-[65] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center px-6">
+      {/* Close */}
       <button
         onClick={handleCancel}
         className="absolute top-5 right-5 w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
@@ -458,8 +466,10 @@ export default function VoiceMode({
         </svg>
       </button>
 
+      {/* Status */}
       <p className="text-sm text-zinc-400 tracking-wide mb-6">{statusLabel}</p>
 
+      {/* Visualizer */}
       <div className="relative w-full max-w-2xl h-40 flex items-center justify-center">
         <canvas
           ref={canvasRef}
@@ -483,15 +493,7 @@ export default function VoiceMode({
         )}
       </div>
 
-      {state === "listening" && (
-        <div className="mt-2 h-2 w-40 bg-zinc-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 transition-[width] duration-75"
-            style={{ width: `${Math.min(100, volume * 400)}%` }}
-          />
-        </div>
-      )}
-
+      {/* Transcript / reply */}
       <div className="mt-6 w-full max-w-xl text-center min-h-[80px]">
         {partial && (
           <p className="text-base text-zinc-200 leading-relaxed">
@@ -504,14 +506,12 @@ export default function VoiceMode({
             {replyText}
           </p>
         )}
-        {error && <p className="text-sm text-red-400 leading-relaxed">{error}</p>}
-        {debugInfo && (
-          <p className="mt-3 text-[10px] text-zinc-600 font-mono">
-            {debugInfo}
-          </p>
+        {error && (
+          <p className="text-sm text-red-400 leading-relaxed">{error}</p>
         )}
       </div>
 
+      {/* Controls */}
       <div className="mt-8 flex items-center gap-4">
         {state === "error" ? (
           <>
@@ -531,26 +531,6 @@ export default function VoiceMode({
               Close
             </button>
           </>
-        ) : state === "listening" ? (
-          <button
-            onClick={stopRecording}
-            className="w-20 h-20 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-colors shadow-lg shadow-blue-500/30"
-            aria-label="Send now"
-          >
-            <svg
-              className="w-8 h-8 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2.5"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-          </button>
         ) : (
           <button
             onClick={handleCancel}
@@ -563,9 +543,8 @@ export default function VoiceMode({
       </div>
 
       <p className="mt-6 text-xs text-zinc-600 text-center max-w-sm">
-        {state === "listening"
-          ? "Speak as long as you want. Tap the ✓ when you're done — no time limit."
-          : "Gyra Ai Voice will reply and keep the conversation going."}
+        Speak naturally. Gyra will detect when you stop talking and reply
+        automatically.
       </p>
     </div>
   );
