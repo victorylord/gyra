@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "https://gyra.ng",
   },
+  verification: {
+    google: "t971Bzq7fEmv4L84b3V0xkE28aL-Px0pK10hXz59cmQ",
+  },
   icons: {
     icon: [{ url: "/icon.png", type: "image/png" }],
     apple: [{ url: "/icon.png", type: "image/png" }],
