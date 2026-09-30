@@ -147,13 +147,16 @@ export default function Home() {
           <span className="font-bold tracking-widest text-lg">GYRA</span>
         </Link>
 
-        <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
-          <Link href="/docs" className="hover:text-white transition-colors">
-            Docs
-          </Link>
-          <Link href="/api" className="hover:text-white transition-colors">
-            API
-          </Link>
+        <div className="flex flex-wrap items-center gap-6 text-xs text-zinc-500">
+        <Link href="/about" className="hover:text-white transition-colors">
+          About
+        </Link>
+        <Link href="/api" className="hover:text-white transition-colors">
+          API
+        </Link>
+        <Link href="/docs" className="hover:text-white transition-colors">
+          Docs
+         </Link>
           <Link href="/changelog" className="hover:text-white transition-colors">
             Changelog
           </Link>
