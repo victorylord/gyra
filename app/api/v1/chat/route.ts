@@ -8,6 +8,7 @@ import {
   rateLimitResponse,
   jailbreakResponse,
 } from "../../security";
+import { logRequest } from "../../_analytics";
 
 // ---------- Types ----------
 type ChatRole = "system" | "user" | "assistant";
@@ -216,6 +217,7 @@ async function callXai(messages: ChatMessage[]): Promise<string | null> {
 
 // ---------- Route ----------
 export async function POST(req: Request) {
+  const started = Date.now();
   try {
     // 1. IP rate limit — 60 req/min
     const clientIP = getClientIP(req);
@@ -371,7 +373,17 @@ export async function POST(req: Request) {
         .eq("id", keyData.id);
     }
 
-    // 9. Response
+    // 9. Analytics log (fire and forget)
+    logRequest({
+      endpoint: "/api/v1/chat",
+      method: "POST",
+      statusCode: 200,
+      provider,
+      latencyMs: Date.now() - started,
+      req,
+    });
+
+    // 10. Response
     return Response.json(buildResponseBody(aiReply, provider, voiceEnabled));
   } catch (err) {
     console.error("chat route error:", err);
