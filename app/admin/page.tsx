@@ -156,6 +156,12 @@ export default function AdminPage() {
             <span className="text-[10px] text-zinc-500">Control Center</span>
           </div>
         </div>
+        <a
+  href="/admin/payments"
+  className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-full font-medium transition-colors"
+>
+  💰 Payments
+</a>
         <div className="flex items-center gap-4">
           <div className="hidden md:flex items-center gap-2 bg-green-500/10 border border-green-500/30 px-3 py-1.5 rounded-full">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>

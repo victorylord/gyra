@@ -1,18 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { supabase, getAccessToken } from "../supabase";
+import Link from "next/link";
+import { supabase } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
 import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
 import VoiceMode from "../components/VoiceMode";
-import MessageContextMenu, {
-  type Action,
-  type MenuState,
-} from "../components/MessageContextMenu";
-import OnboardingModal from "./components/OnboardingModal";
-import ToastContainer, { showToast } from "../components/Toast";
-import { useLongPress } from "../hooks/useLongPress";
 
 // ============================================================
 // MessageContent — renders code blocks with copy buttons
@@ -26,8 +20,7 @@ function MessageContent({ content }: { content: string }) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const parts: { type: "text" | "code"; content: string; language?: string }[] =
-    [];
+  const parts: { type: "text" | "code"; content: string; language?: string }[] = [];
   const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
 
   let lastIndex = 0;
@@ -92,52 +85,6 @@ function MessageContent({ content }: { content: string }) {
 }
 
 // ============================================================
-// Message wrapper with long-press + context menu
-// ============================================================
-function ChatBubble({
-  msg,
-  index,
-  loading,
-  isLast,
-  onOpenMenu,
-  isHighlighted,
-}: {
-  msg: any;
-  index: number;
-  loading: boolean;
-  isLast: boolean;
-  onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void;
-  isHighlighted: boolean;
-}) {
-  const handlers = useLongPress((e) => onOpenMenu(e, index), undefined, {
-    delay: 500,
-  });
-
-  return (
-    <div
-      {...handlers}
-      className={`p-4 rounded-xl max-w-[85%] leading-relaxed select-none md:select-text transition-colors ${
-        msg.role === "user"
-          ? "bg-blue-600 self-end text-white"
-          : "bg-zinc-800 self-start text-zinc-200"
-      } ${isHighlighted ? "ring-2 ring-blue-400" : ""}`}
-    >
-      {msg.role === "assistant" ? (
-        <MessageContent content={msg.content} />
-      ) : (
-        <div className="whitespace-pre-wrap">{msg.content}</div>
-      )}
-      {loading &&
-        isLast &&
-        msg.role === "assistant" &&
-        !msg.content && (
-          <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
-        )}
-    </div>
-  );
-}
-
-// ============================================================
 // Main Dashboard
 // ============================================================
 export default function Dashboard() {
@@ -145,8 +92,17 @@ export default function Dashboard() {
   const [showToS, setShowToS] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Subscription
+  const [subscription, setSubscription] = useState<{
+    plan: string;
+    status: string;
+    expiresAt: string | null;
+    isSuperGyra: boolean;
+  } | null>(null);
 
   // Chat
   const [chats, setChats] = useState<any[]>([]);
@@ -178,49 +134,14 @@ export default function Dashboard() {
     null
   );
 
-  // Context menu
-  const [menu, setMenu] = useState<MenuState>(null);
-
-  // Feedback
-  const [reactions, setReactions] = useState<Record<number, "like" | "dislike">>(
-    {}
-  );
-
-  // Highlighted message (for regeneration)
-  const [highlighted, setHighlighted] = useState<number | null>(null);
-
-  // Onboarding
-  const [onboardingPrompt, setOnboardingPrompt] = useState<string | null>(null);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<any[]>([]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Persist reactions in localStorage (per-chat)
-  useEffect(() => {
-    if (!activeChatId) return;
-    try {
-      const raw = localStorage.getItem(`gyra:reactions:${activeChatId}`);
-      setReactions(raw ? JSON.parse(raw) : {});
-    } catch {
-      setReactions({});
-    }
-  }, [activeChatId]);
-
-  useEffect(() => {
-    if (!activeChatId) return;
-    try {
-      localStorage.setItem(
-        `gyra:reactions:${activeChatId}`,
-        JSON.stringify(reactions)
-      );
-    } catch {}
-  }, [reactions, activeChatId]);
-
   // ============================================================
-  // INIT + URL prompt param
+  // INIT
   // ============================================================
   useEffect(() => {
     const init = async () => {
@@ -230,6 +151,22 @@ export default function Dashboard() {
       setUser(user);
 
       if (user) {
+        // Load subscription
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData.session?.access_token;
+          if (token) {
+            const res = await fetch("/api/v1/subscription/status", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const sub = await res.json();
+              setSubscription(sub);
+            }
+          }
+        } catch {}
+
+        // Load chats
         const { data: chatsData } = await supabase
           .from("chats")
           .select("*")
@@ -258,17 +195,6 @@ export default function Dashboard() {
       } catch (e) {}
     };
     init();
-
-    // Prompt from library via ?prompt=
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const p = params.get("prompt");
-      if (p) {
-        setInput(p);
-        // Clean URL
-        window.history.replaceState({}, "", "/dashboard");
-      }
-    } catch {}
   }, []);
 
   useEffect(() => {
@@ -383,7 +309,11 @@ export default function Dashboard() {
   // ============================================================
   // CORE CHAT SENDER
   // ============================================================
-  const runChat = async (text: string, imageBase64?: string, fileBase64?: string) => {
+  const runChat = async (
+    text: string,
+    imageBase64?: string,
+    fileBase64?: string
+  ) => {
     if (!text.trim() && !imageBase64 && !fileBase64) return;
 
     let chatId = activeChatId;
@@ -416,15 +346,24 @@ export default function Dashboard() {
       const newTitle =
         text.substring(0, 25) + (text.length > 25 ? "..." : "");
       await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
-      setChats(chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
+      setChats(
+        chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
+      );
     }
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
 
     try {
+      // Get the user token so the API can identify them + enforce limits
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "x-gyra-user-token": token } : {}),
+        },
         body: JSON.stringify({
           messages: updatedMessages.map((m: any) => ({
             role: m.role,
@@ -436,6 +375,15 @@ export default function Dashboard() {
           search: searchMode,
         }),
       });
+
+      // Handle the chat-limit paywall
+      if (res.status === 402) {
+        setLoading(false);
+        // Remove the empty assistant bubble
+        setMessages((prev) => prev.slice(0, -1));
+        setShowLimitModal(true);
+        return;
+      }
 
       if (!res.body) throw new Error("No response body");
 
@@ -542,140 +490,6 @@ export default function Dashboard() {
     });
 
   // ============================================================
-  // CONTEXT MENU HANDLERS
-  // ============================================================
-  const openMenu = (
-    e: React.MouseEvent | React.TouchEvent,
-    index: number
-  ) => {
-    e.preventDefault?.();
-    const point = "touches" in e ? e.touches[0] : (e as React.MouseEvent);
-    const msg = messagesRef.current[index];
-    if (!msg) return;
-    setMenu({
-      x: point.clientX,
-      y: point.clientY,
-      messageIndex: index,
-      role: msg.role,
-      content: msg.content,
-    });
-    // Haptic on mobile
-    if ("vibrate" in navigator) navigator.vibrate?.(10);
-  };
-
-  const handleAction = async (
-    action: Action,
-    index: number,
-    content: string
-  ) => {
-    switch (action) {
-      case "copy": {
-        try {
-          await navigator.clipboard.writeText(content);
-          showToast("Copied to clipboard", "success");
-        } catch {
-          showToast("Copy failed", "error");
-        }
-        break;
-      }
-      case "select": {
-        // Let the user select text natively — briefly enable user-select
-        showToast("Long-press the text to select", "info");
-        break;
-      }
-      case "regenerate": {
-        // Find the user message that prompted this reply
-        const history = messagesRef.current;
-        const userMsg = [...history.slice(0, index)]
-          .reverse()
-          .find((m) => m.role === "user");
-        if (!userMsg) {
-          showToast("Nothing to regenerate", "error");
-          break;
-        }
-        // Remove the assistant reply and everything after it, then resend
-        const trimmed = history.slice(0, index);
-        setMessages(trimmed);
-        setHighlighted(null);
-        showToast("Regenerating…", "info");
-        await runChat(userMsg.content, userMsg.imageBase64, userMsg.fileBase64);
-        break;
-      }
-      case "like": {
-        setReactions((r) => ({ ...r, [index]: "like" }));
-        showToast("Thanks for the feedback", "success");
-        break;
-      }
-      case "dislike": {
-        setReactions((r) => ({ ...r, [index]: "dislike" }));
-        showToast("We'll use this to improve", "info");
-        break;
-      }
-      case "read": {
-        try {
-          if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(content);
-            u.rate = 1.05;
-            window.speechSynthesis.speak(u);
-          }
-        } catch {
-          showToast("Read aloud not supported", "error");
-        }
-        break;
-      }
-      case "share": {
-        if (!activeChatId) {
-          showToast("No active chat to share", "error");
-          break;
-        }
-        try {
-          const token = await getAccessToken();
-          if (!token) {
-            showToast("Please sign in again", "error");
-            break;
-          }
-          const res = await fetch("/api/v1/share", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ chatId: activeChatId }),
-          });
-          const data = await res.json();
-          if (!res.ok || !data?.id) {
-            showToast("Could not create share link", "error");
-            break;
-          }
-          const url = `${window.location.origin}/s/${data.id}`;
-          try {
-            await navigator.clipboard.writeText(url);
-            showToast("Share link copied!", "success");
-          } catch {
-            showToast(url, "info");
-          }
-        } catch (e) {
-          console.error(e);
-          showToast("Share failed", "error");
-        }
-        break;
-      }
-      case "report": {
-        const subject = encodeURIComponent("Report a message on Gyra");
-        const body = encodeURIComponent(
-          `Message:\n\n${content}\n\nPlease describe the issue:`
-        );
-        window.open(
-          `mailto:support@gyra.ng?subject=${subject}&body=${body}`,
-          "_blank"
-        );
-        break;
-      }
-    }
-  };
-
-  // ============================================================
   // CHAT ACTIONS
   // ============================================================
   const deleteChat = async (id: string) => {
@@ -739,33 +553,13 @@ export default function Dashboard() {
       ? messages[messages.length - 1].content
       : "";
 
+  const isSuperGyra = subscription?.isSuperGyra === true;
+
   // ============================================================
   // RENDER
   // ============================================================
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
-      {/* Toast host */}
-      <ToastContainer />
-
-      {/* Onboarding (only on first visit) */}
-      <OnboardingModal
-        onUsePrompt={(prompt) => {
-          setInput(prompt);
-          setTimeout(() => {
-            runChat(prompt);
-            setInput("");
-          }, 100);
-        }}
-      />
-
-      {/* Message context menu */}
-      <MessageContextMenu
-        menu={menu}
-        onClose={() => setMenu(null)}
-        onAction={handleAction}
-        reactions={reactions}
-      />
-
       {/* Voice output */}
       {voiceEnabled && latestAssistantMessage && (
         <VoiceOutput
@@ -836,6 +630,37 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Chat limit modal */}
+      {showLimitModal && (
+        <div className="absolute inset-0 bg-black/90 z-[85] flex items-center justify-center p-6 backdrop-blur-sm">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 max-w-md w-full flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-5">
+              <span className="text-2xl">⚡</span>
+            </div>
+            <h2 className="text-2xl font-bold mb-3">
+              Chat limit reached
+            </h2>
+            <p className="text-zinc-400 mb-8 leading-relaxed">
+              You've reached the free limit of 20 messages in this conversation.
+              Upgrade to SuperGyra for unlimited chat, video generation, and
+              more.
+            </p>
+            <Link
+              href="/upgrade"
+              className="bg-white text-black px-8 py-3 rounded-full font-medium hover:bg-zinc-200 transition-colors w-full mb-3"
+            >
+              Upgrade to SuperGyra →
+            </Link>
+            <button
+              onClick={() => setShowLimitModal(false)}
+              className="text-zinc-500 hover:text-white text-sm transition-colors"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Settings */}
       {showSettings && (
         <SettingsPanel
@@ -881,7 +706,10 @@ export default function Dashboard() {
                 <span className="text-zinc-500 font-normal">Lite</span>
               </h3>
               <div className="grid grid-cols-2 gap-3 mb-6">
-                <button className="border-2 border-blue-500 bg-blue-500/10 rounded-xl p-4 text-left">
+                <Link
+                  href="/upgrade"
+                  className="border-2 border-blue-500 bg-blue-500/10 rounded-xl p-4 text-left block"
+                >
                   <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center mb-2">
                     <svg
                       className="w-3 h-3 text-white"
@@ -899,27 +727,30 @@ export default function Dashboard() {
                   </div>
                   <p className="text-lg font-bold">₦10,000.00</p>
                   <p className="text-xs text-zinc-500">Billed monthly</p>
-                </button>
-                <button className="border border-zinc-800 rounded-xl p-4 text-left relative">
+                </Link>
+                <Link
+                  href="/upgrade"
+                  className="border border-zinc-800 rounded-xl p-4 text-left relative block"
+                >
                   <span className="absolute top-2 right-2 text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
                     Save 17%
                   </span>
                   <div className="w-5 h-5 rounded-full border-2 border-zinc-700 mb-2"></div>
                   <p className="text-lg font-bold">₦118,800.00</p>
                   <p className="text-xs text-zinc-500">Billed yearly</p>
-                </button>
+                </Link>
               </div>
-              <button
-                onClick={() => alert("Payments coming soon!")}
-                className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors"
+              <Link
+                href="/upgrade"
+                className="w-full bg-white text-black py-3 rounded-full font-semibold hover:bg-zinc-200 transition-colors text-center block"
               >
                 Upgrade to Lite
-              </button>
+              </Link>
               <div className="flex flex-col gap-3 mt-6">
                 {[
                   "Access to Gyra Build",
                   "Create apps with a single prompt",
-                  "2x longer conversations in Chat",
+                  "Unlimited conversations in Chat",
                   "Expert mode",
                   "Try out AI image & video creation",
                   "Increased limits at regular speed",
@@ -955,9 +786,16 @@ export default function Dashboard() {
               <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-sm font-bold">
                 {user ? user.email[0].toUpperCase() : "?"}
               </div>
-              <p className="text-sm font-semibold truncate">
-                {user ? user.email.split("@")[0] : "Loading..."}
-              </p>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">
+                  {user ? user.email.split("@")[0] : "Loading..."}
+                </p>
+                {isSuperGyra && (
+                  <span className="inline-block mt-0.5 text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
+                    ⚡ SuperGyra
+                  </span>
+                )}
+              </div>
             </div>
             <button
               onClick={() => setIsSidebarOpen(false)}
@@ -1027,23 +865,40 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <button
-            onClick={() => {
-              setShowUpgrade(true);
-              setIsSidebarOpen(false);
-            }}
-            className="w-full flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-2xl p-4 mb-6 transition-colors text-left"
-          >
-            <div className="flex-1">
-              <p className="font-semibold text-sm">SuperGyra</p>
-              <p className="text-xs text-blue-200">
-                Early access to new features
-              </p>
+          {/* SuperGyra upsell / status */}
+          {isSuperGyra ? (
+            <div className="w-full flex items-center gap-3 bg-blue-600/20 border border-blue-500/30 rounded-2xl p-4 mb-6">
+              <div className="flex-1">
+                <p className="font-semibold text-sm text-blue-300">SuperGyra</p>
+                <p className="text-xs text-blue-400/80">
+                  Active
+                  {subscription?.expiresAt &&
+                    ` · renews ${new Date(
+                      subscription.expiresAt
+                    ).toLocaleDateString()}`}
+                </p>
+              </div>
+              <span className="text-2xl">⚡</span>
             </div>
-            <span className="bg-white text-blue-600 px-3 py-1 rounded-full text-xs font-bold">
-              Upgrade
-            </span>
-          </button>
+          ) : (
+            <button
+              onClick={() => {
+                setShowUpgrade(true);
+                setIsSidebarOpen(false);
+              }}
+              className="w-full flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-2xl p-4 mb-6 transition-colors text-left"
+            >
+              <div className="flex-1">
+                <p className="font-semibold text-sm">SuperGyra</p>
+                <p className="text-xs text-blue-200">
+                  Unlimited chat + video generation
+                </p>
+              </div>
+              <span className="bg-white text-blue-600 px-3 py-1 rounded-full text-xs font-bold">
+                Upgrade
+              </span>
+            </button>
+          )}
 
           <div className="mb-4">
             <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider px-1 mb-2">
@@ -1262,38 +1117,34 @@ export default function Dashboard() {
                     G
                   </span>
                 </div>
-                <p className="text-zinc-500 text-sm mb-4">
+                <p className="text-zinc-500 text-sm">
                   Ask anything to get started.
                 </p>
-                <div className="flex flex-wrap gap-2 justify-center max-w-md mx-auto">
-                  {[
-                    "Explain quantum computing like I'm 5",
-                    "Write a cold email to a client",
-                    "Give me 10 business ideas",
-                  ].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => runChat(s)}
-                      className="text-xs bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full px-4 py-2 transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           ) : (
             <div className="w-full flex flex-col gap-4 pb-4">
               {messages.map((msg, i) => (
-                <ChatBubble
+                <div
                   key={i}
-                  msg={msg}
-                  index={i}
-                  loading={loading}
-                  isLast={i === messages.length - 1}
-                  onOpenMenu={openMenu}
-                  isHighlighted={highlighted === i}
-                />
+                  className={`p-4 rounded-xl max-w-[85%] leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-blue-600 self-end text-white"
+                      : "bg-zinc-800 self-start text-zinc-200"
+                  }`}
+                >
+                  {msg.role === "assistant" ? (
+                    <MessageContent content={msg.content} />
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  )}
+                  {loading &&
+                    i === messages.length - 1 &&
+                    msg.role === "assistant" &&
+                    !msg.content && (
+                      <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
+                    )}
+                </div>
               ))}
               <div ref={messagesEndRef} />
             </div>

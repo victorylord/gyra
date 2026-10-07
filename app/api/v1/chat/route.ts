@@ -8,7 +8,13 @@ import {
   rateLimitResponse,
   jailbreakResponse,
 } from "../../security";
-import { logRequest } from "../../_analytics";
+import {
+  getUserFromToken,
+  getSubscription,
+  isSuperGyra,
+  type Subscription,
+} from "@/app/lib/subscription";
+import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 
 // ---------- Types ----------
 type ChatRole = "system" | "user" | "assistant";
@@ -217,7 +223,6 @@ async function callXai(messages: ChatMessage[]): Promise<string | null> {
 
 // ---------- Route ----------
 export async function POST(req: Request) {
-  const started = Date.now();
   try {
     // 1. IP rate limit — 60 req/min
     const clientIP = getClientIP(req);
@@ -302,6 +307,39 @@ export async function POST(req: Request) {
       );
     }
 
+    // 5b. Subscription check — enforce free tier limit
+    let subscription: Subscription = {
+      plan: "free",
+      status: "inactive",
+      expiresAt: null,
+    };
+
+    // Mobile + web dashboard send the Supabase token in this header
+    const userToken = req.headers.get("x-gyra-user-token") || "";
+    if (userToken) {
+      try {
+        const user = await getUserFromToken(userToken);
+        if (user) {
+          subscription = await getSubscription(user.id);
+        }
+      } catch (e) {
+        console.error("subscription lookup failed:", e);
+      }
+    }
+
+    const userMessageCount = messages.filter((m) => m.role === "user").length;
+
+    if (!isSuperGyra(subscription) && userMessageCount > FREE_LIMIT) {
+      return errorResponse(
+        "chat_limit_reached",
+        `You've reached the free limit of ${FREE_LIMIT} messages in this conversation. Upgrade to SuperGyra for unlimited chat.`,
+        402,
+        {
+          "X-Upgrade-URL": "https://gyra.ng/upgrade",
+        }
+      );
+    }
+
     const voiceEnabled = body.voice === true;
 
     // 6. Jailbreak detection
@@ -353,7 +391,6 @@ export async function POST(req: Request) {
     }
 
     // 8. Update usage (atomic increment via RPC).
-    //    Falls back to a best-effort update if RPC is not set up yet.
     const { error: rpcError } = await supabaseAdmin.rpc(
       "increment_api_key_usage",
       { key_id: keyData.id }
@@ -373,17 +410,7 @@ export async function POST(req: Request) {
         .eq("id", keyData.id);
     }
 
-    // 9. Analytics log (fire and forget)
-    logRequest({
-      endpoint: "/api/v1/chat",
-      method: "POST",
-      statusCode: 200,
-      provider,
-      latencyMs: Date.now() - started,
-      req,
-    });
-
-    // 10. Response
+    // 9. Response
     return Response.json(buildResponseBody(aiReply, provider, voiceEnabled));
   } catch (err) {
     console.error("chat route error:", err);
