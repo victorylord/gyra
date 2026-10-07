@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromToken } from "@/app/lib/subscription";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "victorylordhimself@gmail.com";
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
