@@ -22,7 +22,7 @@ export const PRICING = {
 };
 
 export const BANK = {
-  bankName: "Opay",
+  bankName: "MoMo Payment Service Bank",
   accountNumber: "7025431762",
   accountHolder: "Nelly Eke",
 };
@@ -35,20 +35,23 @@ export const CRYPTO = {
 };
 
 export const FREE_LIMIT = 20;
-
-/** NGN per 1 USD for credit conversion */
 export const NGN_PER_USD = 1600;
-
-/** Cost per request in USD */
 export const VIDEO_COST_USD = 2.0;
 export const VOICE_COST_USD = 2.0;
 
-/** Convert NGN amount to USD credits */
+/** Preset credit packages (in USD) */
+export const CREDIT_PACKAGES = [
+  { usd: 5, label: "$5", ngn: 8000, popular: false },
+  { usd: 10, label: "$10", ngn: 16000, popular: true },
+  { usd: 25, label: "$25", ngn: 40000, popular: false },
+  { usd: 50, label: "$50", ngn: 80000, popular: false },
+  { usd: 100, label: "$100", ngn: 160000, popular: false },
+];
+
 export function ngnToUsd(ngn: number): number {
   return Math.floor((ngn / NGN_PER_USD) * 100) / 100;
 }
 
-/** Convert USD to NGN for display */
 export function usdToNgn(usd: number): number {
   return Math.round(usd * NGN_PER_USD);
 }

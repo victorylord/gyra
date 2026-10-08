@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromToken } from "@/app/lib/subscription";
-import { PRICING, type PlanId } from "@/app/lib/paymentConfig";
+import { PRICING, ngnToUsd, type PlanId, NGN_PER_USD } from "@/app/lib/paymentConfig";
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,25 +31,16 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const plan = String(body?.plan || "") as PlanId;
+    const kind = String(body?.kind || "subscription");
     const method = String(body?.method || "");
     const reference = String(body?.reference || "").trim();
     const screenshotUrl = body?.screenshotUrl
       ? String(body.screenshotUrl)
       : null;
 
-    if (plan !== "monthly" && plan !== "yearly") {
-      return Response.json(
-        { error: { code: "invalid_plan", message: "Invalid plan." } },
-        { status: 400 }
-      );
-    }
-
     if (!method || !["ngn", "crypto"].includes(method)) {
       return Response.json(
-        {
-          error: { code: "invalid_method", message: "Invalid payment method." },
-        },
+        { error: { code: "invalid_method", message: "Invalid payment method." } },
         { status: 400 }
       );
     }
@@ -66,7 +57,37 @@ export async function POST(req: Request) {
       );
     }
 
-    const pricing = PRICING[plan];
+    let plan = "credits";
+    let amountNgn = 0;
+
+    if (kind === "credits") {
+      // Credit top-up
+      const usdAmount = Number(body?.usdAmount || 0);
+      if (!usdAmount || usdAmount < 1 || usdAmount > 10000) {
+        return Response.json(
+          {
+            error: {
+              code: "invalid_amount",
+              message: "Credit amount must be between $1 and $10,000.",
+            },
+          },
+          { status: 400 }
+        );
+      }
+      amountNgn = Math.round(usdAmount * NGN_PER_USD);
+    } else {
+      // Subscription
+      const planId = String(body?.plan || "") as PlanId;
+      if (planId !== "monthly" && planId !== "yearly") {
+        return Response.json(
+          { error: { code: "invalid_plan", message: "Invalid plan." } },
+          { status: 400 }
+        );
+      }
+      plan = planId;
+      amountNgn = PRICING[planId].price;
+    }
+
     const admin = getAdmin();
 
     const { data, error } = await admin
@@ -75,7 +96,8 @@ export async function POST(req: Request) {
         user_id: user.id,
         email: user.email,
         plan,
-        amount_ngn: pricing.price,
+        kind,
+        amount_ngn: amountNgn,
         method,
         reference,
         screenshot_url: screenshotUrl,

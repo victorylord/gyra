@@ -36,17 +36,21 @@ export default function StudioPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
-  const [paywallReason, setPaywallReason] = useState<"supergyra" | "credits">("supergyra");
+  const [paywallReason, setPaywallReason] = useState<
+    "supergyra" | "credits"
+  >("supergyra");
   const [credits, setCredits] = useState(0);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [referenceBase64, setReferenceBase64] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load history + credits + templates
+  // ============================================================
+  // Load templates + credits + history
+  // ============================================================
   useEffect(() => {
     const load = async () => {
-      // Fetch templates first
+      // Templates
       try {
         const tRes = await fetch("/api/v1/video/templates");
         if (tRes.ok) {
@@ -117,6 +121,9 @@ export default function StudioPage() {
     };
   }, []);
 
+  // ============================================================
+  // Poll for job status
+  // ============================================================
   const pollJob = (requestId: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
@@ -156,7 +163,13 @@ export default function StudioPage() {
     }, 3000);
   };
 
-  const submit = async (overridePrompt?: string, overrideImage?: string | null) => {
+  // ============================================================
+  // Submit
+  // ============================================================
+  const submit = async (
+    overridePrompt?: string,
+    overrideImage?: string | null
+  ) => {
     const p = (overridePrompt ?? prompt).trim();
     if (!p || generating) return;
     setError(null);
@@ -264,12 +277,16 @@ export default function StudioPage() {
           <span className="text-zinc-600 text-xs tracking-widest">STUDIO</span>
         </Link>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full">
+          <Link
+            href="/credits"
+            className="flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-3 py-1.5 rounded-full transition-colors"
+          >
             <span className="text-xs">💎</span>
             <span className="text-xs font-medium text-blue-300">
               ${credits.toFixed(2)}
             </span>
-          </div>
+            <span className="text-xs text-blue-400">+</span>
+          </Link>
           <Link
             href="/dashboard"
             className="text-sm text-zinc-400 hover:text-white transition-colors"
@@ -337,9 +354,11 @@ export default function StudioPage() {
               </div>
             </div>
 
-            {/* Templates from API */}
+            {/* Templates */}
             <div className="mb-8">
-              <p className="text-base font-semibold mb-3">Create from Template</p>
+              <p className="text-base font-semibold mb-3">
+                Create from Template
+              </p>
               {templates.length === 0 ? (
                 <p className="text-sm text-zinc-500">Loading templates…</p>
               ) : (
@@ -445,7 +464,9 @@ export default function StudioPage() {
                         </p>
                         {j.status === "completed" && j.video_url && (
                           <button
-                            onClick={() => downloadVideo(j.video_url!, j.prompt)}
+                            onClick={() =>
+                              downloadVideo(j.video_url!, j.prompt)
+                            }
                             className="shrink-0 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white transition-colors"
                             title="Download"
                           >
@@ -553,7 +574,7 @@ export default function StudioPage() {
         </div>
       </div>
 
-      {/* Template preview modal */}
+      {/* Template modal */}
       {activeTemplate && (
         <TemplateModal
           template={activeTemplate}
@@ -589,7 +610,7 @@ export default function StudioPage() {
                 : "Video generation is a SuperGyra feature. Upgrade to unlock video, voice, and more."}
             </p>
             <Link
-              href="/upgrade"
+              href={paywallReason === "credits" ? "/credits" : "/upgrade"}
               className="block bg-white text-black px-8 py-3 rounded-full font-medium hover:bg-zinc-200 transition-colors w-full mb-3"
             >
               {paywallReason === "credits"
