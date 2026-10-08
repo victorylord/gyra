@@ -1,6 +1,29 @@
+import { createClient } from "@supabase/supabase-js";
+import {
+  getUserFromToken,
+  getSubscription,
+  isSuperGyra,
+  type Subscription,
+} from "@/app/lib/subscription";
+import { FREE_LIMIT } from "@/app/lib/paymentConfig";
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
 export async function POST(req: Request) {
   try {
     const { messages, think, search } = await req.json();
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return Response.json(
+        { error: "`messages` must be a non-empty array." },
+        { status: 400 }
+      );
+    }
 
     const lastUserMsg = [...messages]
       .reverse()
@@ -10,6 +33,50 @@ export async function POST(req: Request) {
     const hasFile = lastUserMsg?.fileBase64 ? true : false;
     const hasAttachment = hasImage || hasFile;
 
+    // ============ SUBSCRIPTION CHECK ============
+    let subscription: Subscription = {
+      plan: "free",
+      status: "inactive",
+      expiresAt: null,
+      creditsUsd: 0,
+    };
+
+    const userToken = req.headers.get("x-gyra-user-token") || "";
+    if (userToken) {
+      try {
+        const user = await getUserFromToken(userToken);
+        if (user) {
+          subscription = await getSubscription(user.id);
+        }
+      } catch (e) {
+        console.error("subscription lookup failed (continuing as free):", e);
+      }
+    }
+
+    // Enforce free-tier limit based on USER message count
+    const userMessageCount = messages.filter(
+      (m: any) => m.role === "user"
+    ).length;
+
+    if (!isSuperGyra(subscription) && userMessageCount > FREE_LIMIT) {
+      return Response.json(
+        {
+          error: {
+            code: "chat_limit_reached",
+            message: `You've reached the free limit of ${FREE_LIMIT} messages in this conversation. Upgrade to SuperGyra for unlimited chat.`,
+            upgradeUrl: "https://gyra.ng/upgrade",
+          },
+        },
+        {
+          status: 402,
+          headers: {
+            "X-Upgrade-URL": "https://gyra.ng/upgrade",
+          },
+        }
+      );
+    }
+
+    // ============ BUILD SYSTEM PROMPT ============
     const systemPrompt = {
       role: "system",
       content: `You are Gyra, an advanced AI assistant created by Genvia AI Company. Genvia is owned by Victory Lord. You are intelligent, direct, witty, and highly helpful. When showing code, ALWAYS wrap it in triple-backtick code fences with the language specified. Use emojis naturally.${
@@ -185,7 +252,10 @@ export async function POST(req: Request) {
                 }
                 controller.enqueue(
                   new TextEncoder().encode(
-                    `data: ${JSON.stringify({ done: true, provider: "groq" })}\n\n`
+                    `data: ${JSON.stringify({
+                      done: true,
+                      provider: "groq",
+                    })}\n\n`
                   )
                 );
                 controller.close();
@@ -266,12 +336,23 @@ export async function POST(req: Request) {
       }
     }
 
+    // All providers failed
     return Response.json(
-      { error: "All providers failed" },
+      {
+        error:
+          "All AI providers are temporarily unavailable. Please try again in a moment.",
+      },
+      { status: 503 }
+    );
+  } catch (error: any) {
+    console.error("Chat route exception:", error);
+    return Response.json(
+      {
+        error:
+          error?.message ||
+          "An unexpected error occurred. Please try again.",
+      },
       { status: 500 }
     );
-  } catch (error) {
-    console.error("Server error:", error);
-    return Response.json({ error: "Server error" }, { status: 500 });
   }
 }
