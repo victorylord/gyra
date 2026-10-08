@@ -312,6 +312,7 @@ export async function POST(req: Request) {
       plan: "free",
       status: "inactive",
       expiresAt: null,
+      creditsUsd: 0,
     };
 
     // Mobile + web dashboard send the Supabase token in this header
