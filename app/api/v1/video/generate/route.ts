@@ -1,15 +1,25 @@
 import { fal } from "@fal-ai/client";
+import { createClient } from "@supabase/supabase-js";
 import {
   rateLimit,
   getClientIP,
   logSecurityEvent,
   rateLimitResponse,
 } from "../../../security";
+import {
+  getUserFromToken,
+  getSubscription,
+  isSuperGyra,
+} from "@/app/lib/subscription";
 
-// The model — swap this string to change provider
-// Options: "fal-ai/ltx-video-13b-distilled" (cheap, 480p/720p)
-//          "fal-ai/veo3.1/lite" (best quality, 720p/1080p, ~$0.40)
 const MODEL = "fal-ai/ltx-video-13b-distilled";
+
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase env.");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 export async function POST(req: Request) {
   try {
@@ -21,6 +31,30 @@ export async function POST(req: Request) {
         path: "/api/v1/video/generate",
       });
       return rateLimitResponse(limit.resetAt);
+    }
+
+    const token = (req.headers.get("x-gyra-user-token") || "").trim();
+    if (!token) {
+      return errorResponse(
+        "unauthorized",
+        "Sign in required to generate videos.",
+        401
+      );
+    }
+
+    const user = await getUserFromToken(token);
+    if (!user) {
+      return errorResponse("unauthorized", "Invalid session.", 401);
+    }
+
+    const sub = await getSubscription(user.id);
+    if (!isSuperGyra(sub)) {
+      return errorResponse(
+        "supergyra_required",
+        "Video generation is a SuperGyra feature. Upgrade to unlock.",
+        402,
+        { "X-Upgrade-URL": "https://gyra.ng/upgrade" }
+      );
     }
 
     let body: any;
@@ -42,20 +76,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const resolution = body?.resolution === "1080p" ? "720p" : "720p";
     const aspectRatio = body?.aspectRatio === "9:16" ? "9:16" : "16:9";
 
-    // Queue the job
     const { request_id } = await fal.queue.submit(MODEL, {
       input: {
         prompt,
         aspect_ratio: aspectRatio,
         resolution: "720p",
-        num_frames: 121, // ~5s at 24fps
+        num_frames: 121,
         frame_rate: 24,
         expand_prompt: true,
         enable_safety_checker: true,
       },
+    });
+
+    const admin = getAdmin();
+    await admin.from("video_jobs").insert({
+      user_id: user.id,
+      request_id,
+      prompt,
+      model: MODEL,
+      status: "queued",
     });
 
     return Response.json({ requestId: request_id, model: MODEL });
@@ -69,6 +110,14 @@ export async function POST(req: Request) {
   }
 }
 
-function errorResponse(code: string, message: string, status: number) {
-  return Response.json({ error: { code, message } }, { status });
+function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  extraHeaders: Record<string, string> = {}
+) {
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: extraHeaders }
+  );
 }
