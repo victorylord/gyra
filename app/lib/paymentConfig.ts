@@ -8,6 +8,7 @@ export const PRICING = {
     displayPrice: "₦10,000",
     durationDays: 30,
     save: null as string | null,
+    creditsIncluded: 5,
   },
   yearly: {
     id: "yearly" as const,
@@ -16,6 +17,7 @@ export const PRICING = {
     displayPrice: "₦118,800",
     durationDays: 365,
     save: "Save 17%",
+    creditsIncluded: 60,
   },
 };
 
@@ -33,6 +35,23 @@ export const CRYPTO = {
 };
 
 export const FREE_LIMIT = 20;
+
+/** NGN per 1 USD for credit conversion */
+export const NGN_PER_USD = 1600;
+
+/** Cost per request in USD */
+export const VIDEO_COST_USD = 2.0;
+export const VOICE_COST_USD = 2.0;
+
+/** Convert NGN amount to USD credits */
+export function ngnToUsd(ngn: number): number {
+  return Math.floor((ngn / NGN_PER_USD) * 100) / 100;
+}
+
+/** Convert USD to NGN for display */
+export function usdToNgn(usd: number): number {
+  return Math.round(usd * NGN_PER_USD);
+}
 
 export function cryptoNote(planId: PlanId): string {
   const usd = planId === "monthly" ? "~$6 USD" : "~$72 USD";

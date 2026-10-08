@@ -4,6 +4,7 @@ export type Subscription = {
   plan: "free" | "supergyra";
   status: "active" | "inactive" | "expired" | "pending";
   expiresAt: string | null;
+  creditsUsd: number;
 };
 
 function getAdmin() {
@@ -13,42 +14,49 @@ function getAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/**
- * Returns the current subscription state for a user.
- * Called from server routes with the user's auth token.
- */
 export async function getSubscription(userId: string): Promise<Subscription> {
   const admin = getAdmin();
   if (!admin) {
-    return { plan: "free", status: "inactive", expiresAt: null };
+    return {
+      plan: "free",
+      status: "inactive",
+      expiresAt: null,
+      creditsUsd: 0,
+    };
   }
 
   const { data } = await admin
     .from("subscriptions")
-    .select("plan, status, expires_at")
+    .select("plan, status, expires_at, credits_usd")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (!data) {
-    return { plan: "free", status: "inactive", expiresAt: null };
+    return {
+      plan: "free",
+      status: "inactive",
+      expiresAt: null,
+      creditsUsd: 0,
+    };
   }
 
-  // Auto-check expiry
   if (data.expires_at && new Date(data.expires_at) < new Date()) {
-    return { plan: "free", status: "expired", expiresAt: data.expires_at };
+    return {
+      plan: "free",
+      status: "expired",
+      expiresAt: data.expires_at,
+      creditsUsd: Number(data.credits_usd || 0),
+    };
   }
 
   return {
     plan: (data.plan as any) || "free",
     status: (data.status as any) || "inactive",
     expiresAt: data.expires_at,
+    creditsUsd: Number(data.credits_usd || 0),
   };
 }
 
-/**
- * Server-side helper: verify a bearer token and return the user.
- * Returns null if invalid.
- */
 export async function getUserFromToken(token: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromToken } from "@/app/lib/subscription";
-import { PRICING, type PlanId } from "@/app/lib/paymentConfig";
+import { PRICING, type PlanId, ngnToUsd } from "@/app/lib/paymentConfig";
+import { addCredits } from "@/app/lib/credits";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "victorylordhimself@gmail.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -27,7 +28,6 @@ export async function POST(
 
     const admin = getAdmin();
 
-    // Load the payment
     const { data: payment, error } = await admin
       .from("payments")
       .select("*")
@@ -47,32 +47,37 @@ export async function POST(
 
     const plan = payment.plan as PlanId;
     const pricing = PRICING[plan];
-    if (!pricing) {
-      return Response.json(
-        { error: { code: "invalid_plan", message: "Invalid plan." } },
-        { status: 400 }
+
+    // Convert NGN to USD credits
+    const creditsUsd = ngnToUsd(payment.amount_ngn);
+
+    // 1. Mark payment approved
+    await admin
+      .from("payments")
+      .update({
+        status: "approved",
+        credits_usd: creditsUsd,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    // 2. If plan-based subscription (SuperGyra), activate subscription
+    if (pricing) {
+      const { data: existingSub } = await admin
+        .from("subscriptions")
+        .select("expires_at")
+        .eq("user_id", payment.user_id)
+        .maybeSingle();
+
+      const baseDate =
+        existingSub?.expires_at && new Date(existingSub.expires_at) > new Date()
+          ? new Date(existingSub.expires_at)
+          : new Date();
+      const expiresAt = new Date(
+        baseDate.getTime() + pricing.durationDays * 24 * 60 * 60 * 1000
       );
-    }
 
-    // Calculate expiry — from now if new, extend if renewing
-    const { data: existingSub } = await admin
-      .from("subscriptions")
-      .select("expires_at")
-      .eq("user_id", payment.user_id)
-      .maybeSingle();
-
-    const baseDate =
-      existingSub?.expires_at && new Date(existingSub.expires_at) > new Date()
-        ? new Date(existingSub.expires_at)
-        : new Date();
-    const expiresAt = new Date(
-      baseDate.getTime() + pricing.durationDays * 24 * 60 * 60 * 1000
-    );
-
-    // Upsert subscription
-    const { error: subErr } = await admin
-      .from("subscriptions")
-      .upsert(
+      await admin.from("subscriptions").upsert(
         {
           user_id: payment.user_id,
           plan: "supergyra",
@@ -86,24 +91,22 @@ export async function POST(
         },
         { onConflict: "user_id" }
       );
+    }
 
-    if (subErr) {
-      return Response.json(
-        { error: { code: "sub_failed", message: subErr.message } },
-        { status: 500 }
+    // 3. Add credits from the payment amount
+    if (creditsUsd > 0) {
+      await addCredits(
+        payment.user_id,
+        creditsUsd,
+        `Payment approved: ₦${payment.amount_ngn.toLocaleString()}`,
+        payment.reference
       );
     }
 
-    // Mark payment approved
-    await admin
-      .from("payments")
-      .update({
-        status: "approved",
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-
-    return Response.json({ ok: true, expiresAt: expiresAt.toISOString() });
+    return Response.json({
+      ok: true,
+      creditsUsd,
+    });
   } catch (err: any) {
     return Response.json(
       { error: { code: "internal_error", message: err?.message } },

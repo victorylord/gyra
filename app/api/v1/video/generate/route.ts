@@ -11,6 +11,8 @@ import {
   getSubscription,
   isSuperGyra,
 } from "@/app/lib/subscription";
+import { deductCredits } from "@/app/lib/credits";
+import { VIDEO_COST_USD } from "@/app/lib/paymentConfig";
 
 const MODEL = "fal-ai/ltx-video-13b-distilled";
 
@@ -57,6 +59,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // Credits check
+    if (sub.creditsUsd < VIDEO_COST_USD) {
+      return errorResponse(
+        "insufficient_credits",
+        `You need $${VIDEO_COST_USD.toFixed(
+          2
+        )} in credits to generate a video. Your balance: $${sub.creditsUsd.toFixed(
+          2
+        )}. Top up at gyra.ng/upgrade`,
+        402,
+        { "X-Upgrade-URL": "https://gyra.ng/upgrade" }
+      );
+    }
+
     let body: any;
     try {
       body = await req.json();
@@ -78,6 +94,22 @@ export async function POST(req: Request) {
 
     const aspectRatio = body?.aspectRatio === "9:16" ? "9:16" : "16:9";
 
+    // Deduct credits FIRST
+    const deduction = await deductCredits(
+      user.id,
+      VIDEO_COST_USD,
+      `Video generation: ${prompt.slice(0, 80)}`
+    );
+
+    if (!deduction.ok) {
+      return errorResponse(
+        "credits_failed",
+        deduction.error || "Could not deduct credits.",
+        402
+      );
+    }
+
+    // Queue with fal
     const { request_id } = await fal.queue.submit(MODEL, {
       input: {
         prompt,
@@ -90,6 +122,7 @@ export async function POST(req: Request) {
       },
     });
 
+    // Save job
     const admin = getAdmin();
     await admin.from("video_jobs").insert({
       user_id: user.id,
@@ -99,7 +132,12 @@ export async function POST(req: Request) {
       status: "queued",
     });
 
-    return Response.json({ requestId: request_id, model: MODEL });
+    return Response.json({
+      requestId: request_id,
+      model: MODEL,
+      cost: VIDEO_COST_USD,
+      newBalance: deduction.balance,
+    });
   } catch (err: any) {
     console.error("video generate error:", err);
     return errorResponse(
