@@ -1,31 +1,31 @@
 // ============================================================
 // Simulated stat base + increment engine
-// Persists in-memory per server instance. Resets on cold start.
+// All numbers derive from the day total, so endpoints always
+// sum to the "today" figure.
 // ============================================================
 
+// Top-level targets
 export const BASE_TOTAL = 908_864;
 export const BASE_TODAY = 23_030;
 export const BASE_MONTH = 588_800;
 
-export const BASE_ENDPOINTS: { endpoint: string; count: number }[] = [
-  { endpoint: "/api/v1/chat", count: 1_906 },
-  { endpoint: "/api/chat", count: 1_673 },
-  { endpoint: "/api/v1/video/generate", count: 1_331 },
-  { endpoint: "/api/v1/voice", count: 1_190 },
-  { endpoint: "/api/v1/transcribe", count: 1_011 },
-  { endpoint: "/api/v1/credits", count: 742 },
+// Endpoint distribution — these are WEIGHTS, not values
+// The day total gets split across them at read time
+const ENDPOINT_WEIGHTS: { endpoint: string; weight: number }[] = [
+  { endpoint: "/api/v1/chat", weight: 24.3 },
+  { endpoint: "/api/chat", weight: 21.3 },
+  { endpoint: "/api/v1/video/generate", weight: 17.0 },
+  { endpoint: "/api/v1/voice", weight: 15.2 },
+  { endpoint: "/api/v1/transcribe", weight: 12.9 },
+  { endpoint: "/api/v1/credits", weight: 9.3 },
 ];
 
-// Small random helper
 function rand(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-// Increment window per speed tier
 const MIN_TICK = 5;
 const MAX_TICK = 20;
-
-// Increment every N ms
 export const TICK_INTERVAL_MS = 8_000;
 
 type SimulatorState = {
@@ -33,41 +33,30 @@ type SimulatorState = {
   total: number;
   today: number;
   month: number;
-  endpoints: Map<string, number>;
+  // Extra "noise" per endpoint on top of the weighted split
+  endpointNoise: Map<string, number>;
   lastTickAt: number;
 };
 
-// Module-level state — persists across requests in the same server instance
 let state: SimulatorState = makeInitialState();
 
 function makeInitialState(): SimulatorState {
-  const map = new Map<string, number>();
-  for (const e of BASE_ENDPOINTS) map.set(e.endpoint, e.count);
+  const noise = new Map<string, number>();
+  for (const e of ENDPOINT_WEIGHTS) noise.set(e.endpoint, 0);
   return {
     startedAt: Date.now(),
     total: BASE_TOTAL,
     today: BASE_TODAY,
     month: BASE_MONTH,
-    endpoints: map,
+    endpointNoise: noise,
     lastTickAt: Date.now(),
   };
 }
 
-// Add a real incoming request to the running counts
-export function recordRealRequest(endpoint: string) {
-  state.total += 1;
-  state.today += 1;
-  state.month += 1;
-  state.endpoints.set(endpoint, (state.endpoints.get(endpoint) || 0) + 1);
-}
-
-// Catch up the simulator based on how much time has passed
-// This runs on every read, so numbers always look live
 function catchUp() {
   const now = Date.now();
   const elapsed = now - state.lastTickAt;
   const ticks = Math.floor(elapsed / TICK_INTERVAL_MS);
-
   if (ticks <= 0) return;
 
   for (let i = 0; i < ticks; i++) {
@@ -76,35 +65,31 @@ function catchUp() {
     state.today += delta;
     state.month += delta;
 
-    // Distribute the delta across endpoints
-    // Pick 1–3 random endpoints to give the increment to
-    const keys = Array.from(state.endpoints.keys());
-    const pickCount = Math.min(keys.length, rand(1, 3));
-    const shuffled = [...keys].sort(() => Math.random() - 0.5);
-    const chosen = shuffled.slice(0, pickCount);
-
-    // Split delta across chosen endpoints
-    let remaining = delta;
-    for (let j = 0; j < chosen.length; j++) {
-      const share =
-        j === chosen.length - 1
-          ? remaining
-          : Math.max(1, Math.floor(remaining / (chosen.length - j)));
-      state.endpoints.set(
-        chosen[j],
-        (state.endpoints.get(chosen[j]) || 0) + share
+    // Distribute delta across endpoints by weight
+    // Each endpoint gets approximately (delta * weight/100)
+    // But we add randomness so it isn't too clean
+    let distributed = 0;
+    for (let j = 0; j < ENDPOINT_WEIGHTS.length; j++) {
+      const ep = ENDPOINT_WEIGHTS[j];
+      const isLast = j === ENDPOINT_WEIGHTS.length - 1;
+      const share = isLast
+        ? delta - distributed
+        : Math.max(
+            0,
+            Math.round(delta * (ep.weight / 100) + rand(-1, 1))
+          );
+      const capped = Math.max(0, Math.min(share, delta - distributed));
+      state.endpointNoise.set(
+        ep.endpoint,
+        (state.endpointNoise.get(ep.endpoint) || 0) + capped
       );
-      remaining -= share;
-      if (remaining <= 0) break;
+      distributed += capped;
+      if (distributed >= delta) break;
     }
   }
 
   state.lastTickAt = now;
 }
-
-// ============================================================
-// Public read API — always returns the current "live" stats
-// ============================================================
 
 export function getSimulatedSummary() {
   catchUp();
@@ -115,16 +100,64 @@ export function getSimulatedSummary() {
   };
 }
 
+// ============================================================
+// Endpoints are computed FROM the today total
+// so the sum of all endpoints always equals today (or very close)
+// ============================================================
+
 export function getSimulatedEndpoints(limit = 10) {
   catchUp();
-  const arr = Array.from(state.endpoints.entries()).map(
-    ([endpoint, count]) => ({ endpoint, count })
-  );
-  arr.sort((a, b) => b.count - a.count);
-  return arr.slice(0, limit);
+
+  const todayTotal = state.today;
+  const results: { endpoint: string; count: number }[] = [];
+
+  let allocated = 0;
+  for (let i = 0; i < ENDPOINT_WEIGHTS.length; i++) {
+    const ep = ENDPOINT_WEIGHTS[i];
+    const isLast = i === ENDPOINT_WEIGHTS.length - 1;
+
+    // Calculate share based on weight, plus noise from ticks
+    const baseShare = Math.floor(todayTotal * (ep.weight / 100));
+    const noise = state.endpointNoise.get(ep.endpoint) || 0;
+
+    // Scale noise proportionally so it doesn't distort the total
+    const noiseScaled = Math.floor(noise * 0.15);
+
+    const raw = baseShare + noiseScaled;
+
+    // Force last endpoint to fill the gap so sum == today
+    const value = isLast ? Math.max(0, todayTotal - allocated) : raw;
+
+    results.push({ endpoint: ep.endpoint, count: value });
+    allocated += value;
+  }
+
+  // If there's any leftover or overshoot, adjust the top endpoint
+  // This guarantees the total always matches exactly
+  const currentSum = results.reduce((a, b) => a + b.count, 0);
+  const diff = todayTotal - currentSum;
+  if (diff !== 0 && results.length > 0) {
+    results[0].count += diff;
+  }
+
+  results.sort((a, b) => b.count - a.count);
+  return results.slice(0, limit);
 }
 
-// The process start time — useful for "since launch" display
 export function getSimulatorStartTime(): string {
   return new Date(state.startedAt).toISOString();
+}
+
+// Record a real request from a real endpoint
+export function recordRealRequest(endpoint: string) {
+  state.total += 1;
+  state.today += 1;
+  state.month += 1;
+  // Also track on the endpoint if it's one of ours
+  if (state.endpointNoise.has(endpoint)) {
+    state.endpointNoise.set(
+      endpoint,
+      (state.endpointNoise.get(endpoint) || 0) + 1
+    );
+  }
 }
