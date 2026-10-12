@@ -5,9 +5,9 @@
 // ============================================================
 
 // Top-level targets
-export const BASE_TOTAL = 908_864;
+export const BASE_TOTAL = 1_108_864;
 export const BASE_TODAY = 23_030;
-export const BASE_MONTH = 588_800;
+export const BASE_MONTH = 608_800;
 
 // Endpoint distribution — these are WEIGHTS, not values
 // The day total gets split across them at read time
