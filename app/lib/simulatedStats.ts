@@ -1,16 +1,9 @@
-// ============================================================
-// Simulated stat base + increment engine
-// All numbers derive from the day total, so endpoints always
-// sum to the "today" figure.
-// ============================================================
+import { createClient } from "@supabase/supabase-js";
 
-// Top-level targets
-export const BASE_TOTAL = 1_108_864;
-export const BASE_TODAY = 23_030;
-export const BASE_MONTH = 608_800;
+const MIN_TICK = 5;
+const MAX_TICK = 20;
+const TICK_INTERVAL_MS = 8_000;
 
-// Endpoint distribution — these are WEIGHTS, not values
-// The day total gets split across them at read time
 const ENDPOINT_WEIGHTS: { endpoint: string; weight: number }[] = [
   { endpoint: "/api/v1/chat", weight: 24.3 },
   { endpoint: "/api/chat", weight: 21.3 },
@@ -24,140 +17,131 @@ function rand(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-const MIN_TICK = 5;
-const MAX_TICK = 20;
-export const TICK_INTERVAL_MS = 8_000;
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
-type SimulatorState = {
-  startedAt: number;
+type SimRow = {
   total: number;
   today: number;
   month: number;
-  // Extra "noise" per endpoint on top of the weighted split
-  endpointNoise: Map<string, number>;
-  lastTickAt: number;
+  last_tick_at: string;
 };
 
-let state: SimulatorState = makeInitialState();
-
-function makeInitialState(): SimulatorState {
-  const noise = new Map<string, number>();
-  for (const e of ENDPOINT_WEIGHTS) noise.set(e.endpoint, 0);
-  return {
-    startedAt: Date.now(),
-    total: BASE_TOTAL,
-    today: BASE_TODAY,
-    month: BASE_MONTH,
-    endpointNoise: noise,
-    lastTickAt: Date.now(),
+/**
+ * Reads the current stats row from Supabase.
+ * If enough time has passed, calculates how many ticks should have
+ * fired and applies them atomically in one update.
+ */
+export async function tickAndGet(): Promise<SimRow> {
+  const admin = getAdmin();
+  const fallback: SimRow = {
+    total: 1_108_864,
+    today: 23_030,
+    month: 688_800,
+    last_tick_at: new Date().toISOString(),
   };
-}
 
-function catchUp() {
-  const now = Date.now();
-  const elapsed = now - state.lastTickAt;
-  const ticks = Math.floor(elapsed / TICK_INTERVAL_MS);
-  if (ticks <= 0) return;
+  if (!admin) return fallback;
 
-  for (let i = 0; i < ticks; i++) {
-    const delta = rand(MIN_TICK, MAX_TICK);
-    state.total += delta;
-    state.today += delta;
-    state.month += delta;
+  try {
+    const { data, error } = await admin
+      .from("sim_stats")
+      .select("total, today, month, last_tick_at")
+      .eq("id", 1)
+      .maybeSingle();
 
-    // Distribute delta across endpoints by weight
-    // Each endpoint gets approximately (delta * weight/100)
-    // But we add randomness so it isn't too clean
-    let distributed = 0;
-    for (let j = 0; j < ENDPOINT_WEIGHTS.length; j++) {
-      const ep = ENDPOINT_WEIGHTS[j];
-      const isLast = j === ENDPOINT_WEIGHTS.length - 1;
-      const share = isLast
-        ? delta - distributed
-        : Math.max(
-            0,
-            Math.round(delta * (ep.weight / 100) + rand(-1, 1))
-          );
-      const capped = Math.max(0, Math.min(share, delta - distributed));
-      state.endpointNoise.set(
-        ep.endpoint,
-        (state.endpointNoise.get(ep.endpoint) || 0) + capped
-      );
-      distributed += capped;
-      if (distributed >= delta) break;
+    if (error || !data) return fallback;
+
+    const now = Date.now();
+    const lastTick = new Date(data.last_tick_at).getTime();
+    const elapsed = now - lastTick;
+    const ticks = Math.floor(elapsed / TICK_INTERVAL_MS);
+
+    if (ticks <= 0) return data as SimRow;
+
+    // Calculate total accumulated increments across missed ticks
+    let totalDelta = 0;
+    for (let i = 0; i < ticks; i++) {
+      totalDelta += rand(MIN_TICK, MAX_TICK);
     }
+
+    // Cap how much can accumulate at once (prevents huge jumps if server slept for days)
+    const MAX_JUMP = 500;
+    totalDelta = Math.min(totalDelta, MAX_JUMP);
+
+    const nextRow: SimRow = {
+      total: Number(data.total) + totalDelta,
+      today: Number(data.today) + totalDelta,
+      month: Number(data.month) + totalDelta,
+      last_tick_at: new Date(
+        lastTick + ticks * TICK_INTERVAL_MS
+      ).toISOString(),
+    };
+
+    // Write back
+    const { error: updateErr } = await admin
+      .from("sim_stats")
+      .update({
+        total: nextRow.total,
+        today: nextRow.today,
+        month: nextRow.month,
+        last_tick_at: nextRow.last_tick_at,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", 1);
+
+    if (updateErr) {
+      console.error("sim_stats update failed:", updateErr);
+      return data as SimRow;
+    }
+
+    return nextRow;
+  } catch (e) {
+    console.error("sim_stats error:", e);
+    return fallback;
   }
-
-  state.lastTickAt = now;
-}
-
-export function getSimulatedSummary() {
-  catchUp();
-  return {
-    total: state.total,
-    today: state.today,
-    month: state.month,
-  };
 }
 
 // ============================================================
-// Endpoints are computed FROM the today total
-// so the sum of all endpoints always equals today (or very close)
+// Endpoints derived from the current "today" total
 // ============================================================
 
-export function getSimulatedEndpoints(limit = 10) {
-  catchUp();
-
-  const todayTotal = state.today;
+export function deriveEndpoints(
+  todayTotal: number,
+  limit = 10
+): { endpoint: string; count: number }[] {
   const results: { endpoint: string; count: number }[] = [];
-
   let allocated = 0;
+
   for (let i = 0; i < ENDPOINT_WEIGHTS.length; i++) {
     const ep = ENDPOINT_WEIGHTS[i];
     const isLast = i === ENDPOINT_WEIGHTS.length - 1;
 
-    // Calculate share based on weight, plus noise from ticks
-    const baseShare = Math.floor(todayTotal * (ep.weight / 100));
-    const noise = state.endpointNoise.get(ep.endpoint) || 0;
+    // Use weight to split, with a small deterministic jitter based on the total
+    // so it stays consistent between refreshes
+    const jitter = ((todayTotal * (i + 7)) % 100) / 1000; // 0..0.099
+    const pct = ep.weight / 100 + (jitter - 0.05) * 0.02;
 
-    // Scale noise proportionally so it doesn't distort the total
-    const noiseScaled = Math.floor(noise * 0.15);
+    const share = isLast
+      ? Math.max(0, todayTotal - allocated)
+      : Math.floor(todayTotal * pct);
 
-    const raw = baseShare + noiseScaled;
-
-    // Force last endpoint to fill the gap so sum == today
-    const value = isLast ? Math.max(0, todayTotal - allocated) : raw;
-
-    results.push({ endpoint: ep.endpoint, count: value });
-    allocated += value;
+    results.push({ endpoint: ep.endpoint, count: share });
+    allocated += share;
+    if (allocated >= todayTotal) break;
   }
 
-  // If there's any leftover or overshoot, adjust the top endpoint
-  // This guarantees the total always matches exactly
-  const currentSum = results.reduce((a, b) => a + b.count, 0);
-  const diff = todayTotal - currentSum;
+  // Fix rounding
+  const sum = results.reduce((a, b) => a + b.count, 0);
+  const diff = todayTotal - sum;
   if (diff !== 0 && results.length > 0) {
     results[0].count += diff;
   }
 
   results.sort((a, b) => b.count - a.count);
   return results.slice(0, limit);
-}
-
-export function getSimulatorStartTime(): string {
-  return new Date(state.startedAt).toISOString();
-}
-
-// Record a real request from a real endpoint
-export function recordRealRequest(endpoint: string) {
-  state.total += 1;
-  state.today += 1;
-  state.month += 1;
-  // Also track on the endpoint if it's one of ours
-  if (state.endpointNoise.has(endpoint)) {
-    state.endpointNoise.set(
-      endpoint,
-      (state.endpointNoise.get(endpoint) || 0) + 1
-    );
-  }
 }

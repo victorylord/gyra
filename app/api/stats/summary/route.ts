@@ -1,8 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import {
-  getSimulatedSummary,
-  getSimulatorStartTime,
-} from "@/app/lib/simulatedStats";
+import { tickAndGet } from "@/app/lib/simulatedStats";
+
+export const revalidate = 0;
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -11,14 +10,12 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export const revalidate = 0;
-
 export async function GET() {
   try {
-    // Simulated baseline (base + ticks)
-    const sim = getSimulatedSummary();
+    // Persisted simulated counters (ticks forward automatically)
+    const sim = await tickAndGet();
 
-    // Real requests from Supabase (if configured)
+    // Real requests
     let realTotal = 0;
     let realToday = 0;
     let realMonth = 0;
@@ -36,9 +33,7 @@ export async function GET() {
         ).toISOString();
 
         const [totalRes, todayRes, monthRes, uniqueRes] = await Promise.all([
-          supabase
-            .from("api_requests")
-            .select("*", { count: "exact", head: true }),
+          supabase.from("api_requests").select("*", { count: "exact", head: true }),
           supabase
             .from("api_requests")
             .select("*", { count: "exact", head: true })
@@ -61,7 +56,7 @@ export async function GET() {
           (uniqueRes.data || []).map((r: any) => r.ip_hash)
         ).size;
       } catch (e) {
-        console.error("supabase stats failed:", e);
+        console.error("supabase real stats failed:", e);
       }
     }
 
@@ -71,7 +66,6 @@ export async function GET() {
       month: sim.month + realMonth,
       uniqueToday: uniqueToday + Math.floor(sim.today / 12),
       updatedAt: new Date().toISOString(),
-      startedAt: getSimulatorStartTime(),
     });
   } catch (err: any) {
     return Response.json(

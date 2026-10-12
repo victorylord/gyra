@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { getSimulatedEndpoints } from "@/app/lib/simulatedStats";
+import { tickAndGet, deriveEndpoints } from "@/app/lib/simulatedStats";
+
+export const revalidate = 0;
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,14 +10,11 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export const revalidate = 0;
-
 export async function GET() {
   try {
-    // Simulated endpoint counts
-    const simEndpoints = getSimulatedEndpoints(20);
+    const sim = await tickAndGet();
 
-    // Real endpoint counts from Supabase
+    // Real endpoint counts
     const realMap = new Map<string, number>();
     const supabase = getSupabase();
     if (supabase) {
@@ -36,11 +35,14 @@ export async function GET() {
           realMap.set(ep, (realMap.get(ep) || 0) + 1);
         }
       } catch (e) {
-        console.error("supabase endpoints failed:", e);
+        console.error("supabase real endpoints failed:", e);
       }
     }
 
-    // Merge simulated + real
+    // Simulated endpoints derived from today total
+    const simEndpoints = deriveEndpoints(sim.today, 20);
+
+    // Merge
     const combined = new Map<string, number>();
     for (const e of simEndpoints) combined.set(e.endpoint, e.count);
     for (const [ep, count] of realMap.entries()) {

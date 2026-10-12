@@ -32,10 +32,9 @@ export default function StatsPage() {
       const eData = await eRes.json();
 
       setSummary((prev) => {
-        // Trigger a subtle pulse if the total changed
-        if (prev && sData?.total && sData.total !== prev.total) {
+        if (prev && sData?.total && sData.total > prev.total) {
           setPulse(true);
-          setTimeout(() => setPulse(false), 400);
+          setTimeout(() => setPulse(false), 500);
         }
         return sData;
       });
@@ -47,7 +46,7 @@ export default function StatsPage() {
 
   useEffect(() => {
     fetchAll();
-    pollRef.current = setInterval(fetchAll, 8_000);
+    pollRef.current = setInterval(fetchAll, 3_000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -60,12 +59,10 @@ export default function StatsPage() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* Ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/8 rounded-full blur-[180px]" />
       </div>
 
-      {/* Nav */}
       <div className="relative z-10 border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur z-30">
         <Link href="/" className="flex items-center gap-3">
           <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-xs font-bold">
@@ -89,13 +86,12 @@ export default function StatsPage() {
       </div>
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 py-12">
-        {/* Big total */}
         <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
             Total API Requests Served
           </p>
           <div
-            className={`text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-blue-300 to-blue-600 bg-clip-text text-transparent transition-transform duration-300 ${
+            className={`text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-blue-300 to-blue-600 bg-clip-text text-transparent transition-transform duration-500 ${
               pulse ? "scale-[1.02]" : "scale-100"
             }`}
           >
@@ -107,14 +103,11 @@ export default function StatsPage() {
           </div>
           {summary?.updatedAt && (
             <p className="text-xs text-zinc-600 mt-4">
-              Updated{" "}
-              {new Date(summary.updatedAt).toLocaleTimeString()} · Auto-refresh
-              every 8s
+              Updated {new Date(summary.updatedAt).toLocaleTimeString()} · Auto-refresh every 3s
             </p>
           )}
         </div>
 
-        {/* 3 cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <StatCard
             label="Today"
@@ -139,7 +132,6 @@ export default function StatsPage() {
           />
         </div>
 
-        {/* Top endpoints */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6">
           <h2 className="text-sm font-semibold tracking-wide mb-6 flex items-center gap-2">
             <span className="text-blue-400">◢</span>
@@ -181,7 +173,7 @@ export default function StatsPage() {
         </div>
 
         <p className="text-center text-xs text-zinc-600 mt-12">
-          Live request counter · Updated every 8 seconds
+          Live request counter · Updated every 3 seconds
         </p>
       </div>
     </main>
@@ -207,7 +199,7 @@ function StatCard({
         {label}
       </p>
       <p
-        className={`text-4xl font-bold tracking-tight mb-2 transition-transform duration-300 ${
+        className={`text-4xl font-bold tracking-tight mb-2 transition-transform duration-500 ${
           pulse ? "scale-[1.02]" : "scale-100"
         }`}
       >
@@ -225,17 +217,20 @@ function StatCard({
 function AnimatedNumber({ value }: { value: number }) {
   const [display, setDisplay] = useState(value);
   const rafRef = useRef<number | null>(null);
+  const displayRef = useRef(value);
 
   useEffect(() => {
     const start = performance.now();
-    const from = display;
+    const from = displayRef.current;
     const to = value;
-    const duration = 600;
+    const duration = 800;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
+      const current = Math.round(from + (to - from) * eased);
+      setDisplay(current);
+      displayRef.current = current;
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
     };
 
@@ -243,7 +238,6 @@ function AnimatedNumber({ value }: { value: number }) {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   return <span>{display.toLocaleString("en-US")}</span>;
