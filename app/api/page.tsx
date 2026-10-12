@@ -29,7 +29,7 @@ export default function ApiPage() {
           <Link href="/playground" className="hover:text-white transition-colors">
             Playground
           </Link>
-          <Link href="/status" className="hover:text-white transition-colors">
+          <Link href="/stats" className="hover:text-white transition-colors">
             Status
           </Link>
         </div>
@@ -41,7 +41,7 @@ export default function ApiPage() {
             Sign in
           </Link>
           <Link
-            href="/dashboard"
+            href="/api-keys"
             className="bg-white text-black px-4 py-2 rounded-full text-sm font-medium hover:bg-zinc-200 transition-colors"
           >
             Get API key
@@ -63,11 +63,11 @@ export default function ApiPage() {
             </h1>
             <p className="text-zinc-400 text-lg leading-relaxed mb-10 max-w-lg">
               One API for chat, vision, files, voice, and video.
-              OpenAI-compatible. Free to start. Built for Nigeria and the world.
+              OpenAI-compatible. Free to start. Built for the world.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
-                href="/dashboard"
+                href="/api-keys"
                 className="bg-white text-black px-7 py-3.5 rounded-full font-medium hover:bg-zinc-200 transition-colors text-center"
               >
                 Get your free API key
@@ -253,8 +253,8 @@ export default function ApiPage() {
                 body: "Chat, vision, files, voice, and video — routed through a single OpenAI-compatible API.",
               },
               {
-                title: "Built for Nigeria.",
-                body: "Naira pricing, Nigerian English, Yoruba, Igbo, Hausa, and Pidgin understood natively.",
+                title: "Built for Overseas.",
+                body: "Naira & USD pricing, Nigerian English, Yoruba, Igbo, Hausa, and Pidgin understood natively.",
               },
               {
                 title: "Free to start.",
@@ -383,7 +383,7 @@ console.log(data.choices[0].message.content);`}
             ].map((p) => (
               <Link
                 key={p.title}
-                href="/products"
+                href="/docs"
                 className="bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-2xl p-6 transition-colors group"
               >
                 <span className="text-3xl block mb-4">{p.icon}</span>
@@ -398,7 +398,7 @@ console.log(data.choices[0].message.content);`}
 
           <div className="text-center mt-12">
             <Link
-              href="/products"
+              href="/changelog"
               className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
             >
               See all products <span>→</span>
@@ -433,7 +433,7 @@ console.log(data.choices[0].message.content);`}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/dashboard"
+              href="/api-keys"
               className="bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-zinc-200 transition-colors"
             >
               Get API key
