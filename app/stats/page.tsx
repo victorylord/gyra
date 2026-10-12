@@ -1,16 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePolling } from "./hooks/useStats";
-import AnimatedNumber from "./components/AnimatedNumber";
-import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useEffect, useRef, useState } from "react";
 
 type Summary = {
   total: number;
@@ -25,26 +16,53 @@ type Endpoints = {
   updatedAt: string;
 };
 
-type Timeseries = {
-  series: { date: string; count: number }[];
-  updatedAt: string;
-};
-
 export default function StatsPage() {
-  const summary = usePolling<Summary>("/api/stats/summary", 20_000);
-  const endpoints = usePolling<Endpoints>("/api/stats/endpoints", 20_000);
-  const timeseries = usePolling<Timeseries>("/api/stats/timeseries", 20_000);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [endpoints, setEndpoints] = useState<Endpoints | null>(null);
+  const [pulse, setPulse] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchAll = async () => {
+    try {
+      const [sRes, eRes] = await Promise.all([
+        fetch("/api/stats/summary", { cache: "no-store" }),
+        fetch("/api/stats/endpoints", { cache: "no-store" }),
+      ]);
+      const sData = await sRes.json();
+      const eData = await eRes.json();
+
+      setSummary((prev) => {
+        // Trigger a subtle pulse if the total changed
+        if (prev && sData?.total && sData.total !== prev.total) {
+          setPulse(true);
+          setTimeout(() => setPulse(false), 400);
+        }
+        return sData;
+      });
+      setEndpoints(eData);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchAll();
+    pollRef.current = setInterval(fetchAll, 8_000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const maxEndpointCount = Math.max(
     1,
-    ...(endpoints.data?.endpoints.map((e) => e.count) || [1])
+    ...(endpoints?.endpoints.map((e) => e.count) || [1])
   );
 
   return (
     <main className="min-h-screen bg-black text-white">
       {/* Ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/10 rounded-full blur-[180px]" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/8 rounded-full blur-[180px]" />
       </div>
 
       {/* Nav */}
@@ -56,12 +74,18 @@ export default function StatsPage() {
           <span className="font-bold tracking-widest text-sm">GYRA</span>
           <span className="text-zinc-600 text-xs tracking-widest">STATS</span>
         </Link>
-        <Link
-          href="/"
-          className="text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          ← Back
-        </Link>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 px-3 py-1.5 rounded-full">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+            <span className="text-xs text-green-400 font-medium">Live</span>
+          </div>
+          <Link
+            href="/"
+            className="text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            ← Back
+          </Link>
+        </div>
       </div>
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 py-12">
@@ -70,16 +94,22 @@ export default function StatsPage() {
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
             Total API Requests Served
           </p>
-          <div className="text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-blue-300 to-blue-600 bg-clip-text text-transparent">
-            {summary.loading ? (
-              <span className="opacity-40">—</span>
+          <div
+            className={`text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-blue-300 to-blue-600 bg-clip-text text-transparent transition-transform duration-300 ${
+              pulse ? "scale-[1.02]" : "scale-100"
+            }`}
+          >
+            {summary?.total != null ? (
+              <AnimatedNumber value={summary.total} />
             ) : (
-              <AnimatedNumber value={summary.data?.total || 0} />
+              <span className="opacity-40">—</span>
             )}
           </div>
-          {summary.data?.updatedAt && (
+          {summary?.updatedAt && (
             <p className="text-xs text-zinc-600 mt-4">
-              Updated {new Date(summary.data.updatedAt).toLocaleTimeString()}
+              Updated{" "}
+              {new Date(summary.updatedAt).toLocaleTimeString()} · Auto-refresh
+              every 8s
             </p>
           )}
         </div>
@@ -89,81 +119,24 @@ export default function StatsPage() {
           <StatCard
             label="Today"
             sub="requests since 00:00 UTC"
-            value={summary.data?.today ?? 0}
-            loading={summary.loading}
+            value={summary?.today ?? 0}
+            loading={!summary}
+            pulse={pulse}
           />
           <StatCard
             label="This Month"
             sub="this calendar month"
-            value={summary.data?.month ?? 0}
-            loading={summary.loading}
+            value={summary?.month ?? 0}
+            loading={!summary}
+            pulse={pulse}
           />
           <StatCard
             label="All Time"
             sub="since launch"
-            value={summary.data?.total ?? 0}
-            loading={summary.loading}
+            value={summary?.total ?? 0}
+            loading={!summary}
+            pulse={pulse}
           />
-        </div>
-
-        {/* Chart */}
-        <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 mb-10">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-sm font-semibold tracking-wide flex items-center gap-2">
-              <span className="text-blue-400">◢</span>
-              Requests · Last 30 Days
-            </h2>
-            <span className="text-xs text-zinc-500">
-              {timeseries.data?.series.reduce((a, b) => a + b.count, 0) || 0} total
-            </span>
-          </div>
-
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={timeseries.data?.series || []}
-                margin={{ top: 8, right: 8, left: -12, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.55} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="date"
-                  stroke="#3f3f46"
-                  tick={{ fill: "#71717a", fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(d: string) => d.slice(5)}
-                />
-                <YAxis
-                  stroke="#3f3f46"
-                  tick={{ fill: "#71717a", fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "#09090b",
-                    border: "1px solid #27272a",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: "#a1a1aa" }}
-                  itemStyle={{ color: "#60a5fa" }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#grad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
         </div>
 
         {/* Top endpoints */}
@@ -173,15 +146,15 @@ export default function StatsPage() {
             Top Endpoints Today
           </h2>
 
-          {endpoints.loading ? (
+          {!endpoints ? (
             <p className="text-sm text-zinc-500">Loading…</p>
-          ) : endpoints.data?.endpoints.length === 0 ? (
+          ) : endpoints.endpoints.length === 0 ? (
             <p className="text-sm text-zinc-500">
               No requests yet today. Check back soon.
             </p>
           ) : (
             <div className="flex flex-col gap-4">
-              {endpoints.data?.endpoints.map((ep, i) => {
+              {endpoints.endpoints.map((ep, i) => {
                 const pct = (ep.count / maxEndpointCount) * 100;
                 return (
                   <div key={ep.endpoint}>
@@ -208,7 +181,7 @@ export default function StatsPage() {
         </div>
 
         <p className="text-center text-xs text-zinc-600 mt-12">
-          Refreshes every 20 seconds · Data collected server-side
+          Live request counter · Updated every 8 seconds
         </p>
       </div>
     </main>
@@ -220,18 +193,24 @@ function StatCard({
   sub,
   value,
   loading,
+  pulse,
 }: {
   label: string;
   sub: string;
   value: number;
   loading: boolean;
+  pulse: boolean;
 }) {
   return (
     <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6">
       <p className="text-xs tracking-wider text-zinc-500 uppercase mb-4">
         {label}
       </p>
-      <p className="text-4xl font-bold tracking-tight mb-2">
+      <p
+        className={`text-4xl font-bold tracking-tight mb-2 transition-transform duration-300 ${
+          pulse ? "scale-[1.02]" : "scale-100"
+        }`}
+      >
         {loading ? (
           <span className="text-zinc-700">—</span>
         ) : (
@@ -241,4 +220,31 @@ function StatCard({
       <p className="text-xs text-zinc-500">{sub}</p>
     </div>
   );
+}
+
+function AnimatedNumber({ value }: { value: number }) {
+  const [display, setDisplay] = useState(value);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const start = performance.now();
+    const from = display;
+    const to = value;
+    const duration = 600;
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(from + (to - from) * eased));
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return <span>{display.toLocaleString("en-US")}</span>;
 }
