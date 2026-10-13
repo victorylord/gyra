@@ -7,13 +7,13 @@ export default function ApiPage() {
   return (
     <main className="min-h-screen bg-black text-white overflow-hidden">
       {/* Ambient glow */}
-      <div className="fixed inset-0 pointer-events-none">
+      <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1100px] h-[1100px] bg-blue-500/8 rounded-full blur-[180px]" />
         <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-purple-500/6 rounded-full blur-[160px]" />
       </div>
 
       {/* Nav */}
-      <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-5 border-b border-white/5 backdrop-blur-sm">
+      <nav className="relative z-30 flex items-center justify-between px-6 md:px-12 py-5 border-b border-white/5 backdrop-blur-sm bg-black/40">
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
           <span className="font-bold tracking-widest text-sm">GYRA</span>
@@ -29,7 +29,7 @@ export default function ApiPage() {
           <Link href="/playground" className="hover:text-white transition-colors">
             Playground
           </Link>
-          <Link href="/stats" className="hover:text-white transition-colors">
+          <Link href="/status" className="hover:text-white transition-colors">
             Status
           </Link>
         </div>
@@ -49,52 +49,98 @@ export default function ApiPage() {
         </div>
       </nav>
 
-      {/* ============ HERO ============ */}
-      <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 pt-20 md:pt-28 pb-20">
-        <div className="grid md:grid-cols-2 gap-16 items-center">
-          <div>
-            <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-6">
+      {/* ============================================================
+          HERO WITH FULL-WIDTH VIDEO BACKGROUND
+          ============================================================ */}
+      <section className="relative z-10 w-full min-h-[80vh] flex items-center overflow-hidden">
+        {/* Video background */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          poster="/api-hero-poster.jpg"
+          className="absolute inset-0 w-full h-full object-cover z-0"
+        >
+          <source src="/api-hero-bg.mp4" type="video/mp4" />
+        </video>
+
+        {/* Dark overlay */}
+        <div
+          aria-hidden
+          className="absolute inset-0 z-[1]"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.72) 50%, rgba(0,0,0,0.94) 100%)",
+          }}
+        />
+
+        {/* Blue glow */}
+        <div
+          aria-hidden
+          className="absolute inset-0 z-[2] pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse at 30% 50%, rgba(59,130,246,0.18) 0%, transparent 60%)",
+          }}
+        />
+
+        {/* Hero content */}
+        <div className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24 w-full">
+          <div className="max-w-3xl">
+            <p className="text-xs tracking-[0.4em] text-white/50 uppercase mb-8">
               The Gyra Developer Platform
             </p>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tighter leading-[1.05] mb-8">
-              Build with the
+
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tighter leading-[0.95] mb-8 text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.6)]">
+              One intelligence layer.
               <br />
-              intelligence layer.
+              Every modality.
             </h1>
-            <p className="text-zinc-400 text-lg leading-relaxed mb-10 max-w-lg">
+
+            <p className="text-base md:text-xl text-white/75 max-w-2xl leading-relaxed mb-12">
               One API for chat, vision, files, voice, and video.
-              OpenAI-compatible. Free to start. Built for the world.
+              OpenAI-compatible. Free to start. Built for Nigeria and the world.
             </p>
+
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/api-keys"
-                className="bg-white text-black px-7 py-3.5 rounded-full font-medium hover:bg-zinc-200 transition-colors text-center"
+                className="bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-zinc-200 transition-colors text-center"
               >
                 Get your free API key
               </Link>
               <Link
                 href="/docs"
-                className="border border-white/10 hover:border-white/30 text-white px-7 py-3.5 rounded-full font-medium transition-colors text-center"
+                className="border border-white/20 hover:border-white/50 text-white px-8 py-4 rounded-full font-medium transition-colors backdrop-blur-sm bg-white/5 text-center"
               >
                 Read the docs →
               </Link>
             </div>
           </div>
+        </div>
 
-          {/* Hero image */}
-          <div className="relative flex items-center justify-center">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-3xl blur-3xl" />
-            <img
-              src="/api-hero.png"
-              alt="Gyra API"
-              className="relative w-full max-w-md object-contain drop-shadow-[0_0_60px_rgba(59,130,246,0.35)]"
+        {/* Scroll indicator */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 animate-bounce opacity-40">
+          <svg
+            className="w-5 h-5 text-white"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M19 14l-7 7m0 0l-7-7m7 7V3"
             />
-          </div>
+          </svg>
         </div>
       </section>
 
       {/* ============ LOGO STRIP ============ */}
-      <section className="relative z-10 border-y border-white/5 py-12">
+      <section className="relative z-10 border-b border-white/5 py-12">
         <div className="max-w-6xl mx-auto px-6 md:px-12">
           <p className="text-center text-xs text-zinc-500 tracking-[0.3em] uppercase mb-8">
             Works with your stack
@@ -121,7 +167,7 @@ export default function ApiPage() {
         </div>
       </section>
 
-      {/* ============ CONSTELLATION SVG ============ */}
+      {/* ============ CONSTELLATION ============ */}
       <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24">
         <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
@@ -254,7 +300,7 @@ export default function ApiPage() {
               },
               {
                 title: "Built for Overseas.",
-                body: "Naira & USD pricing, Nigerian English, Yoruba, Igbo, Hausa, and Pidgin understood natively.",
+                body: "Naira and USD pricing, understood natively.",
               },
               {
                 title: "Free to start.",
@@ -265,14 +311,16 @@ export default function ApiPage() {
                 <h3 className="text-xl font-semibold mb-3 tracking-tight">
                   {f.title}
                 </h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">{f.body}</p>
+                <p className="text-sm text-zinc-400 leading-relaxed">
+                  {f.body}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ============ IMAGE BREAK (cube) ============ */}
+      {/* ============ CUBE SECTION ============ */}
       <section className="relative z-10 border-t border-white/5 py-24">
         <div className="max-w-5xl mx-auto px-6 md:px-12">
           <div className="grid md:grid-cols-2 gap-16 items-center">
@@ -300,7 +348,6 @@ export default function ApiPage() {
               </Link>
             </div>
 
-            {/* Cube image */}
             <div className="relative flex items-center justify-center">
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/15 to-blue-500/10 rounded-3xl blur-2xl" />
               <img
@@ -327,7 +374,9 @@ export default function ApiPage() {
 
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-black">
-              <span className="text-xs text-zinc-500 font-mono">javascript</span>
+              <span className="text-xs text-zinc-500 font-mono">
+                javascript
+              </span>
               <button className="text-xs text-zinc-400 hover:text-white transition-colors">
                 Copy
               </button>
@@ -360,7 +409,7 @@ console.log(data.choices[0].message.content);`}
         </div>
       </section>
 
-      {/* ============ PRODUCTS PREVIEW ============ */}
+      {/* ============ PRODUCTS ============ */}
       <section className="relative z-10 border-t border-white/5 py-24">
         <div className="max-w-6xl mx-auto px-6 md:px-12">
           <div className="text-center mb-16">
@@ -383,7 +432,7 @@ console.log(data.choices[0].message.content);`}
             ].map((p) => (
               <Link
                 key={p.title}
-                href="/docs"
+                href="/products"
                 className="bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-2xl p-6 transition-colors group"
               >
                 <span className="text-3xl block mb-4">{p.icon}</span>
@@ -398,7 +447,7 @@ console.log(data.choices[0].message.content);`}
 
           <div className="text-center mt-12">
             <Link
-              href="/changelog"
+              href="/products"
               className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
             >
               See all products <span>→</span>
@@ -407,22 +456,7 @@ console.log(data.choices[0].message.content);`}
         </div>
       </section>
 
-      {/* ============ ECOSYSTEM ============ */}
-      <section className="relative z-10 border-t border-white/5 py-24">
-        <div className="max-w-5xl mx-auto px-6 md:px-12 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tighter mb-6">
-            More than 400 developers
-            <br />
-            building with Gyra.
-          </h2>
-          <p className="text-zinc-400 max-w-xl mx-auto leading-relaxed">
-            From indie hackers to enterprise teams, Gyra powers the AI
-            experiences millions of people use every day.
-          </p>
-        </div>
-      </section>
-
-      {/* ============ FINAL CTA ============ */}
+      {/* ============ CTA ============ */}
       <section className="relative z-10 border-t border-white/5 py-24">
         <div className="max-w-3xl mx-auto px-6 md:px-12 text-center">
           <h2 className="text-3xl md:text-4xl font-bold tracking-tighter leading-tight mb-6">
@@ -470,7 +504,10 @@ console.log(data.choices[0].message.content);`}
             <Link href="/status" className="hover:text-white transition-colors">
               Status
             </Link>
-            <Link href="/changelog" className="hover:text-white transition-colors">
+            <Link
+              href="/changelog"
+              className="hover:text-white transition-colors"
+            >
               Changelog
             </Link>
             <a
