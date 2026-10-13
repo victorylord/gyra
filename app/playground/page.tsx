@@ -1,460 +1,622 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Logo from "../Logo";
 import { supabase } from "../supabase";
 
-const MODELS = [
-  { id: "gyra-1.0", label: "Gyra 1.0", desc: "Flagship intelligence" },
-  { id: "gyra-lite", label: "Gyra Lite", desc: "Fast responses" },
-  { id: "gyra-vision", label: "Gyra Vision", desc: "Image understanding" },
+type Tab = "chat" | "media" | "network";
+
+type Endpoint = {
+  id: string;
+  category: Tab;
+  method: "GET" | "POST";
+  path: string;
+  title: string;
+  description: string;
+  defaultBody: string;
+  cost: number;
+};
+
+const ENDPOINTS: Endpoint[] = [
+  {
+    id: "chat",
+    category: "chat",
+    method: "POST",
+    path: "/api/v1/chat",
+    title: "Chat Completions",
+    description: "Streaming chat with any Gyra model",
+    defaultBody: JSON.stringify(
+      {
+        messages: [
+          { role: "system", content: "You are Gyra, a helpful AI assistant." },
+          { role: "user", content: "Explain quantum computing like I'm 5" },
+        ],
+        think: false,
+        search: false,
+      },
+      null,
+      2
+    ),
+    cost: 0,
+  },
+  {
+    id: "music-search",
+    category: "media",
+    method: "POST",
+    path: "/api/v1/media/music/search",
+    title: "Music Search",
+    description: "Search Spotify tracks, artists, and albums",
+    defaultBody: JSON.stringify(
+      { q: "Wizkid Essence", type: "track", limit: 5 },
+      null,
+      2
+    ),
+    cost: 0.9,
+  },
+  {
+    id: "youtube-transcript",
+    category: "media",
+    method: "POST",
+    path: "/api/v1/media/youtube/transcript",
+    title: "YouTube Transcript",
+    description: "Fetch public captions from any video",
+    defaultBody: JSON.stringify(
+      { url: "https://youtube.com/watch?v=dQw4w9WgXcQ" },
+      null,
+      2
+    ),
+    cost: 0.9,
+  },
+  {
+    id: "tiktok-metadata",
+    category: "media",
+    method: "POST",
+    path: "/api/v1/media/tiktok/metadata",
+    title: "TikTok Metadata",
+    description: "Get title, author, and thumbnail",
+    defaultBody: JSON.stringify(
+      { url: "https://www.tiktok.com/@tiktok/video/7010000000000000000" },
+      null,
+      2
+    ),
+    cost: 0.9,
+  },
 ];
 
-const DEFAULT_SYSTEM =
-  "You are Gyra, an advanced AI assistant created by Genvia AI Company, owned by Victory Lord. Be helpful, direct, and accurate.";
-
-type Message = { role: "user" | "assistant" | "system"; content: string };
+const CHAT_PLACEHOLDERS = [
+  "Explain quantum computing like I'm 5...",
+  "Write a cold email to a Nigerian fintech CEO...",
+  "Debug this JavaScript: const x = [1,2,3].map(...",
+  "Give me 10 business ideas for Lagos...",
+  "Translate 'good morning' to Yoruba, Igbo, Hausa...",
+  "Write a poem about jollof rice...",
+];
 
 export default function PlaygroundPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("chat");
+  const [activeEndpointId, setActiveEndpointId] = useState("chat");
+  const [apiKey, setApiKey] = useState("");
+  const [userKeys, setUserKeys] = useState<any[]>([]);
   const [user, setUser] = useState<any>(null);
-  const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [activeKey, setActiveKey] = useState<string>("");
-  const [model, setModel] = useState(MODELS[0].id);
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM);
-  const [userInput, setUserInput] = useState("");
-  const [temperature, setTemperature] = useState(0.7);
-  const [maxTokens, setMaxTokens] = useState(1024);
-  const [think, setThink] = useState(false);
-  const [search, setSearch] = useState(false);
-
+  const [requestBody, setRequestBody] = useState(
+    ENDPOINTS.find((e) => e.id === "chat")!.defaultBody
+  );
   const [response, setResponse] = useState("");
-  const [reasoning, setReasoning] = useState("");
   const [loading, setLoading] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
+  const [statusCode, setStatusCode] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copiedTab, setCopiedTab] = useState<string | null>(null);
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [streamingCursor, setStreamingCursor] = useState(true);
+  const [copied, setCopied] = useState(false);
 
+  const responseRef = useRef<HTMLDivElement>(null);
+
+  const activeEndpoint =
+    ENDPOINTS.find((e) => e.id === activeEndpointId) || ENDPOINTS[0];
+
+  // Load user + keys
   useEffect(() => {
     const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user || null);
-      if (data.user) {
+      const { data: auth } = await supabase.auth.getUser();
+      setUser(auth.user);
+      if (auth.user) {
         const { data: keys } = await supabase
           .from("api_keys")
           .select("*")
-          .eq("user_id", data.user.id)
+          .eq("user_id", auth.user.id)
           .eq("active", true);
-        if (keys && keys.length > 0) {
-          setApiKeys(keys);
-          setActiveKey(keys[0].key);
-        }
+        if (keys) setUserKeys(keys);
       }
     };
     init();
   }, []);
 
+  // Rotate the placeholder for a "live" feel
+  useEffect(() => {
+    const t = setInterval(() => {
+      setPlaceholderIndex((i) => (i + 1) % CHAT_PLACEHOLDERS.length);
+    }, 3500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Blinking cursor
+  useEffect(() => {
+    const t = setInterval(() => setStreamingCursor((c) => !c), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Auto-scroll response
+  useEffect(() => {
+    if (responseRef.current) {
+      responseRef.current.scrollTop = responseRef.current.scrollHeight;
+    }
+  }, [response]);
+
+  const switchEndpoint = (id: string) => {
+    const ep = ENDPOINTS.find((e) => e.id === id);
+    if (!ep) return;
+    setActiveEndpointId(id);
+    setRequestBody(ep.defaultBody);
+    setResponse("");
+    setError(null);
+    setLatency(null);
+    setStatusCode(null);
+  };
+
+  const switchCategory = (cat: Tab) => {
+    setActiveTab(cat);
+    const first = ENDPOINTS.find((e) => e.category === cat);
+    if (first) switchEndpoint(first.id);
+  };
+
   const run = async () => {
-    if (!activeKey) {
-      setError("You need an API key to run the playground. Generate one at gyra.ng/api");
+    if (loading) return;
+
+    // Key validation
+    const keyToUse = apiKey.trim();
+
+    if (!keyToUse) {
+      setError(
+        userKeys.length > 0
+          ? "Select or paste an API key to run this request."
+          : "You need an API key. Generate one at gyra.ng/api-keys"
+      );
       return;
     }
-    if (!userInput.trim()) return;
+
+    // Category/key prefix validation
+    if (
+      activeEndpoint.category === "media" &&
+      !keyToUse.startsWith("gyramedia_")
+    ) {
+      setError(
+        "This endpoint requires a media API key (starts with gyramedia_)."
+      );
+      return;
+    }
+
+    if (
+      activeEndpoint.category === "chat" &&
+      !keyToUse.startsWith("gyra_")
+    ) {
+      setError(
+        "This endpoint requires an AI API key (starts with gyra_)."
+      );
+      return;
+    }
+
+    // Body validation
+    let parsedBody: any;
+    try {
+      parsedBody = JSON.parse(requestBody);
+    } catch {
+      setError("Request body must be valid JSON.");
+      return;
+    }
 
     setLoading(true);
-    setError(null);
     setResponse("");
-    setReasoning("");
+    setError(null);
+    setStatusCode(null);
     setLatency(null);
     const started = Date.now();
 
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userInput },
-    ];
-
     try {
-      const res = await fetch("/api/v1/chat", {
-        method: "POST",
+      const res = await fetch(activeEndpoint.path, {
+        method: activeEndpoint.method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${activeKey}`,
+          Authorization: `Bearer ${keyToUse}`,
         },
-        body: JSON.stringify({ messages, think, search }),
+        body:
+          activeEndpoint.method === "POST"
+            ? JSON.stringify(parsedBody)
+            : undefined,
       });
 
-      if (!res.body) throw new Error("No response body");
+      setStatusCode(res.status);
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let full = "";
-      let reason = "";
+      // Check if it's a stream
+      const contentType = res.headers.get("content-type") || "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith("data:")) {
+      if (contentType.includes("text/event-stream")) {
+        // Stream response
+        if (!res.body) throw new Error("No response body");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let full = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (!data) continue;
             try {
-              const parsed = JSON.parse(trimmed.slice(5).trim());
-              if (parsed.reasoning) {
-                reason += parsed.reasoning;
-                setReasoning(reason);
-              }
+              const parsed = JSON.parse(data);
               if (parsed.token) {
                 full += parsed.token;
                 setResponse(full);
               }
-            } catch (e) {}
-          } else {
-            // Non-streaming JSON response (fallback)
-            try {
-              const parsed = JSON.parse(trimmed);
-              if (parsed.choices?.[0]?.message?.content) {
-                full = parsed.choices[0].message.content;
-                setResponse(full);
-              }
-              if (parsed.error) {
-                setError(parsed.error.message || "Request failed");
-              }
-            } catch (e) {}
+            } catch {}
           }
         }
+        if (!full) setResponse("(empty response)");
+      } else {
+        // JSON response
+        const data = await res.json();
+        setResponse(JSON.stringify(data, null, 2));
       }
     } catch (err: any) {
-      setError(err.message || "Something went wrong");
+      setError(err?.message || "Request failed.");
     }
 
     setLatency(Date.now() - started);
     setLoading(false);
   };
 
-  const curlCode = `curl https://gyra.ng/api/v1/chat \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${activeKey || "gyra_xxxxx"}" \\
-  -d '{
-    "messages": [
-      { "role": "system", "content": "${systemPrompt.replace(/"/g, '\\"')}" },
-      { "role": "user", "content": "${userInput.replace(/"/g, '\\"')}" }
-    ],
-    "think": ${think}
-  }'`;
-
-  const jsCode = `const response = await fetch("https://gyra.ng/api/v1/chat", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${activeKey || "gyra_xxxxx"}"
-  },
-  body: JSON.stringify({
-    messages: [
-      { role: "system", content: ${JSON.stringify(systemPrompt)} },
-      { role: "user", content: ${JSON.stringify(userInput)} }
-    ],
-    think: ${think}
-  })
-});
-
-const data = await response.json();
-console.log(data.choices[0].message.content);`;
-
-  const pyCode = `import requests
-
-response = requests.post(
-    "https://gyra.ng/api/v1/chat",
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": "Bearer ${activeKey || "gyra_xxxxx"}"
-    },
-    json={
-        "messages": [
-            {"role": "system", "content": ${JSON.stringify(systemPrompt)}},
-            {"role": "user", "content": ${JSON.stringify(userInput)}}
-        ],
-        "think": ${think ? "True" : "False"}
-    }
-)
-
-print(response.json()["choices"][0]["message"]["content"])`;
-
-  const copyTo = (text: string, tab: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedTab(tab);
-    setTimeout(() => setCopiedTab(null), 2000);
+  const copyResponse = async () => {
+    try {
+      await navigator.clipboard.writeText(response);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
   };
 
   return (
     <main className="min-h-screen bg-black text-white">
+      {/* Ambient grid background — unique to playground */}
+      <div className="fixed inset-0 pointer-events-none opacity-[0.03]">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)`,
+            backgroundSize: "40px 40px",
+          }}
+        />
+      </div>
+
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[160px]" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-blue-500/6 rounded-full blur-[200px]" />
       </div>
 
       {/* Nav */}
-      <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-6 border-b border-white/5 backdrop-blur-sm">
-        <Link href="/" className="flex items-center gap-3">
-          <Logo size={28} animated={false} />
-          <span className="font-bold tracking-widest text-sm">GYRA</span>
-          <span className="text-zinc-600 text-xs tracking-widest">
-            PLAYGROUND
-          </span>
-        </Link>
-        <div className="flex items-center gap-6 text-sm text-zinc-400">
-          <Link href="/docs" className="hover:text-white transition-colors">
-            Docs
+      <nav className="relative z-30 border-b border-white/5 backdrop-blur-sm bg-black/60 sticky top-0">
+        <div className="max-w-7xl mx-auto px-6 md:px-12 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-3">
+            <Logo size={26} animated={false} />
+            <span className="font-bold tracking-widest text-sm">GYRA</span>
+            <span className="text-zinc-600 text-xs tracking-widest">
+              PLAYGROUND
+            </span>
           </Link>
-          <Link href="/api" className="hover:text-white transition-colors">
-            API Keys
-          </Link>
-          <Link href="/" className="hover:text-white transition-colors">
-            ← Back
-          </Link>
+          <div className="flex items-center gap-6 text-sm text-zinc-400">
+            <Link href="/api" className="hover:text-white transition-colors">
+              API
+            </Link>
+            <Link href="/docs" className="hover:text-white transition-colors">
+              Docs
+            </Link>
+            <Link href="/console" className="hover:text-white transition-colors">
+              Console
+            </Link>
+            <span className="hidden md:flex items-center gap-2 text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-green-400">Live</span>
+            </span>
+          </div>
         </div>
       </nav>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 py-12">
-        <div className="mb-10">
+      <div className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 py-10">
+        {/* Header */}
+        <div className="mb-8">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-3">
-            Playground
+            Live Terminal
           </p>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tighter mb-4">
-            Test Gyra in real time
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tighter mb-3">
+            Test any Gyra endpoint
           </h1>
           <p className="text-zinc-400 max-w-2xl leading-relaxed">
-            Experiment with the Gyra API — pick a model, write a prompt, and
-            see live responses. Copy the code for your language of choice.
+            Real API calls against the live Gyra platform. No account needed
+            — just paste any Gyra API key and hit Run.
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* LEFT — CONFIG */}
-          <div className="flex flex-col gap-6">
-            {/* API Key */}
-            <div>
-              <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                API Key
-              </label>
-              {user && apiKeys.length > 0 ? (
-                <select
-                  value={activeKey}
-                  onChange={(e) => setActiveKey(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-                >
-                  {apiKeys.map((k) => (
-                    <option key={k.id} value={k.key}>
-                      {k.name} — {k.key.substring(0, 12)}••••
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Link
-                  href="/api"
-                  className="block bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-xl px-4 py-3 text-sm text-blue-400 transition-colors"
-                >
-                  Generate a free API key →
-                </Link>
+        {/* Category tabs */}
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {[
+            { id: "chat" as const, label: "AI API", icon: "🧠" },
+            { id: "media" as const, label: "Media API", icon: "🎬" },
+            { id: "network" as const, label: "Network API", icon: "🌐" },
+          ].map((c) => (
+            <button
+              key={c.id}
+              onClick={() => switchCategory(c.id)}
+              disabled={c.id === "network"}
+              className={`px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
+                activeTab === c.id
+                  ? "bg-white text-black"
+                  : c.id === "network"
+                  ? "bg-zinc-950 text-zinc-600 border border-zinc-900 cursor-not-allowed"
+                  : "bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
+              }`}
+            >
+              <span>{c.icon}</span>
+              {c.label}
+              {c.id === "network" && (
+                <span className="text-[9px] uppercase tracking-wider">
+                  Soon
+                </span>
               )}
+            </button>
+          ))}
+        </div>
+
+        {/* Endpoint picker */}
+        <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
+          {ENDPOINTS.filter((e) => e.category === activeTab).map((e) => (
+            <button
+              key={e.id}
+              onClick={() => switchEndpoint(e.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
+                activeEndpointId === e.id
+                  ? "bg-blue-500/15 text-blue-300 border border-blue-500/40"
+                  : "bg-zinc-950 text-zinc-500 hover:text-white border border-zinc-800"
+              }`}
+            >
+              <span
+                className={`text-[10px] font-mono ${
+                  e.method === "GET" ? "text-green-400" : "text-blue-400"
+                }`}
+              >
+                {e.method}
+              </span>
+              {e.title}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* LEFT — REQUEST */}
+          <div className="flex flex-col gap-5">
+            {/* Endpoint info */}
+            <div className="bg-zinc-950/60 backdrop-blur-sm border border-white/5 rounded-2xl p-5">
+              <div className="flex items-center gap-3 mb-2">
+                <span
+                  className={`text-[10px] font-mono px-2 py-1 rounded ${
+                    activeEndpoint.method === "GET"
+                      ? "bg-green-500/10 text-green-400"
+                      : "bg-blue-500/10 text-blue-400"
+                  }`}
+                >
+                  {activeEndpoint.method}
+                </span>
+                <code className="text-xs font-mono text-zinc-400 truncate">
+                  {activeEndpoint.path}
+                </code>
+              </div>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                {activeEndpoint.description}
+                {activeEndpoint.cost > 0 && (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <span className="text-amber-400">
+                      ${activeEndpoint.cost.toFixed(2)} / request
+                    </span>
+                  </>
+                )}
+              </p>
             </div>
 
-            {/* Model */}
+            {/* API key input */}
             <div>
-              <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                Model
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {MODELS.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setModel(m.id)}
-                    className={`text-left bg-zinc-950 border rounded-xl px-4 py-3 transition-colors ${
-                      model === m.id
-                        ? "border-blue-500 bg-blue-500/10"
-                        : "border-zinc-800 hover:border-zinc-600"
-                    }`}
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] tracking-[0.2em] text-zinc-500 uppercase">
+                  API Key
+                </label>
+                {userKeys.length > 0 && (
+                  <select
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] px-2 py-1 text-zinc-400 outline-none"
                   >
-                    <p className="text-sm font-medium">{m.label}</p>
-                    <p className="text-[10px] text-zinc-500 mt-1">{m.desc}</p>
-                  </button>
-                ))}
+                    <option value="">— use one of mine —</option>
+                    {userKeys.map((k) => (
+                      <option key={k.id} value={k.key}>
+                        {k.name} ({k.category})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Paste your key — gyra_xxx or gyramedia_xxx"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs font-mono text-zinc-300 outline-none focus:border-blue-500 placeholder:text-zinc-700"
+                spellCheck={false}
+              />
+              <p className="text-[10px] text-zinc-600 mt-2">
+                {userKeys.length === 0 && (
+                  <>
+                    No account?{" "}
+                    <Link
+                      href="/api-keys"
+                      className="text-blue-400 hover:underline"
+                    >
+                      Generate a free key →
+                    </Link>
+                  </>
+                )}
+                {userKeys.length > 0 && (
+                  <>Your keys are loaded automatically when you sign in.</>
+                )}
+              </p>
             </div>
 
-            {/* System prompt */}
+            {/* Request body */}
             <div>
-              <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                System Instructions
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] tracking-[0.2em] text-zinc-500 uppercase">
+                  Request Body (JSON)
+                </label>
+                <span className="text-[10px] text-zinc-600 font-mono">
+                  {requestBody.length} chars
+                </span>
+              </div>
               <textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                rows={3}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none"
+                value={requestBody}
+                onChange={(e) => setRequestBody(e.target.value)}
+                rows={14}
+                className="w-full bg-black border border-zinc-800 rounded-2xl px-4 py-3 text-xs font-mono text-zinc-300 outline-none focus:border-blue-500 resize-none leading-relaxed"
+                spellCheck={false}
               />
             </div>
 
-            {/* User input */}
-            <div>
-              <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                Your Message
-              </label>
-              <textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                rows={4}
-                placeholder="Ask Gyra anything..."
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 resize-none placeholder:text-zinc-600"
-              />
-            </div>
-
-            {/* Parameters */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                  Temperature: {temperature}
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                  Max Tokens: {maxTokens}
-                </label>
-                <input
-                  type="range"
-                  min="64"
-                  max="4096"
-                  step="64"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Toggles */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setThink(!think)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm border transition-colors ${
-                  think
-                    ? "bg-blue-500/15 border-blue-500 text-blue-300"
-                    : "border-zinc-800 text-zinc-400 hover:border-zinc-600"
-                }`}
-              >
-                🧠 Think
-              </button>
-              <button
-                onClick={() => setSearch(!search)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm border transition-colors ${
-                  search
-                    ? "bg-blue-500/15 border-blue-500 text-blue-300"
-                    : "border-zinc-800 text-zinc-400 hover:border-zinc-600"
-                }`}
-              >
-                🌐 Search
-              </button>
-            </div>
-
-            {/* Run button */}
+            {/* Run */}
             <button
               onClick={run}
-              disabled={loading || !userInput.trim()}
-              className="w-full bg-white text-black py-4 rounded-full font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
+              disabled={loading}
+              className="w-full bg-white text-black py-4 rounded-full font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? "Running..." : "Run →"}
+              {loading ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  Running request…
+                </>
+              ) : (
+                <>
+                  Run request
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M5 12h14M12 5l7 7-7 7"
+                    />
+                  </svg>
+                </>
+              )}
             </button>
           </div>
 
-          {/* RIGHT — OUTPUT */}
-          <div className="flex flex-col gap-6">
-            {/* Response */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs tracking-wider text-zinc-500 uppercase">
-                  Response
-                </label>
-                {latency !== null && (
-                  <span className="text-xs text-zinc-500 font-mono">
-                    {latency}ms
+          {/* RIGHT — RESPONSE */}
+          <div className="flex flex-col gap-5">
+            {/* Status bar */}
+            <div className="bg-zinc-950/60 backdrop-blur-sm border border-white/5 rounded-2xl px-5 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-4 text-[10px] uppercase tracking-wider">
+                <span className="text-zinc-500">Status</span>
+                {statusCode === null ? (
+                  <span className="text-zinc-600 font-mono">—</span>
+                ) : statusCode >= 200 && statusCode < 300 ? (
+                  <span className="text-green-400 font-mono font-bold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                    {statusCode} OK
+                  </span>
+                ) : (
+                  <span className="text-red-400 font-mono font-bold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    {statusCode}
                   </span>
                 )}
               </div>
-              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 min-h-[200px] text-sm leading-relaxed">
-                {error ? (
-                  <p className="text-red-400">{error}</p>
-                ) : response ? (
-                  <p className="text-zinc-200 whitespace-pre-wrap">
-                    {response}
-                  </p>
-                ) : loading ? (
-                  <div className="flex items-center gap-2 text-zinc-500">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                    Gyra is thinking...
-                  </div>
-                ) : (
-                  <p className="text-zinc-600">
-                    Your response will appear here.
-                  </p>
-                )}
-              </div>
+              {latency !== null && (
+                <span className="text-[10px] font-mono text-zinc-500">
+                  {latency}ms
+                </span>
+              )}
             </div>
 
-            {/* Reasoning (if Think is on) */}
-            {reasoning && (
-              <div>
-                <label className="block text-xs tracking-wider text-zinc-500 uppercase mb-2">
-                  💭 Reasoning
+            {/* Response viewer */}
+            <div className="flex-1 flex flex-col">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] tracking-[0.2em] text-zinc-500 uppercase">
+                  Response
                 </label>
-                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 text-xs text-zinc-400 italic leading-relaxed max-h-[200px] overflow-y-auto">
-                  {reasoning}
-                </div>
-              </div>
-            )}
-
-            {/* Code examples */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-xs tracking-wider text-zinc-500 uppercase">
-                  Copy as code
-                </label>
-              </div>
-              <div className="flex gap-2 mb-3">
-                {[
-                  { tab: "curl", label: "cURL" },
-                  { tab: "js", label: "JavaScript" },
-                  { tab: "py", label: "Python" },
-                ].map((t) => (
+                {response && (
                   <button
-                    key={t.tab}
-                    onClick={() =>
-                      copyTo(
-                        t.tab === "curl" ? curlCode : t.tab === "js" ? jsCode : pyCode,
-                        t.tab
-                      )
-                    }
-                    className="text-xs bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-full px-4 py-2 transition-colors"
+                    onClick={copyResponse}
+                    className="text-[10px] text-zinc-500 hover:text-white transition-colors flex items-center gap-1.5"
                   >
-                    {copiedTab === t.tab ? "✓ Copied!" : `Copy ${t.label}`}
+                    {copied ? "✓ Copied" : "Copy"}
                   </button>
-                ))}
+                )}
               </div>
-
-              <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden">
-                <pre className="p-4 text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre max-h-[220px]">
-                  {jsCode}
-                </pre>
+              <div
+                ref={responseRef}
+                className="flex-1 min-h-[400px] max-h-[600px] overflow-y-auto bg-black border border-zinc-800 rounded-2xl p-5 text-xs font-mono text-zinc-300 leading-relaxed"
+              >
+                {error ? (
+                  <div className="text-red-400 whitespace-pre-wrap">
+                    {error}
+                  </div>
+                ) : response ? (
+                  <pre className="whitespace-pre-wrap break-words">
+                    {response}
+                    {loading && streamingCursor && (
+                      <span className="inline-block w-2 h-3.5 bg-blue-400 ml-0.5 align-middle animate-pulse" />
+                    )}
+                  </pre>
+                ) : loading ? (
+                  <div className="flex items-center gap-2 text-blue-400">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    <span>Waiting for response</span>
+                    <span>{streamingCursor ? "▎" : " "}</span>
+                  </div>
+                ) : (
+                  <div className="text-zinc-600">
+                    <div className="mb-4 text-zinc-700">
+                      <span className="text-green-500">$</span>{" "}
+                      <span className="text-zinc-500">
+                        gyra {activeEndpoint.method.toLowerCase()}{" "}
+                        {activeEndpoint.path}
+                      </span>
+                    </div>
+                    <div className="text-zinc-700 italic">
+                      Press Run to send the request.
+                    </div>
+                    <div className="mt-4 text-zinc-800">
+                      {CHAT_PLACEHOLDERS[placeholderIndex]}
+                      {streamingCursor ? "▎" : " "}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

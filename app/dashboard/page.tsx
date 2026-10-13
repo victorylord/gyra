@@ -354,7 +354,6 @@ export default function Dashboard() {
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
 
     try {
-      // Get the user token so the API can identify them + enforce limits
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
@@ -376,10 +375,8 @@ export default function Dashboard() {
         }),
       });
 
-      // Handle the chat-limit paywall
       if (res.status === 402) {
         setLoading(false);
-        // Remove the empty assistant bubble
         setMessages((prev) => prev.slice(0, -1));
         setShowLimitModal(true);
         return;
@@ -637,9 +634,7 @@ export default function Dashboard() {
             <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-5">
               <span className="text-2xl">⚡</span>
             </div>
-            <h2 className="text-2xl font-bold mb-3">
-              Chat limit reached
-            </h2>
+            <h2 className="text-2xl font-bold mb-3">Chat limit reached</h2>
             <p className="text-zinc-400 mb-8 leading-relaxed">
               You've reached the free limit of 20 messages in this conversation.
               Upgrade to SuperGyra for unlimited chat, video generation, and
@@ -819,6 +814,14 @@ export default function Dashboard() {
 
           <div className="flex flex-col gap-2 mb-4">
             {[
+              {
+                label: "Console",
+                icon: "🎛️",
+                action: () => {
+                  window.location.href = "/console";
+                  setIsSidebarOpen(false);
+                },
+              },
               {
                 label: "Automations",
                 icon: "⚙️",
@@ -1087,25 +1090,34 @@ export default function Dashboard() {
               <h1 className="text-lg font-bold">Gyra</h1>
             </div>
           </div>
-          <button
-            onClick={() => (window.location.href = "/api")}
-            className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center"
-            title="Developer API"
-          >
-            <svg
-              className="w-5 h-5 text-zinc-300"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-2">
+            <Link
+              href="/console"
+              className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center transition-colors"
+              title="Developer Console"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-              />
-            </svg>
-          </button>
+              <span className="text-zinc-300 text-sm">🎛️</span>
+            </Link>
+            <button
+              onClick={() => (window.location.href = "/api")}
+              className="w-9 h-9 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center"
+              title="Developer API"
+            >
+              <svg
+                className="w-5 h-5 text-zinc-300"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto px-4 py-4">
