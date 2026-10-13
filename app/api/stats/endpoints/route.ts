@@ -12,11 +12,12 @@ function getSupabase() {
 
 export async function GET() {
   try {
-    const sim = await tickAndGet();
-
-    // Real endpoint counts
-    const realMap = new Map<string, number>();
     const supabase = getSupabase();
+
+    // Real endpoint counts for today
+    let realToday = 0;
+    const realMap = new Map<string, number>();
+
     if (supabase) {
       try {
         const now = new Date();
@@ -33,16 +34,19 @@ export async function GET() {
         for (const row of data || []) {
           const ep = (row as any).endpoint;
           realMap.set(ep, (realMap.get(ep) || 0) + 1);
+          realToday += 1;
         }
       } catch (e) {
-        console.error("supabase real endpoints failed:", e);
+        console.error("real endpoints failed:", e);
       }
     }
 
-    // Simulated endpoints derived from today total
-    const simEndpoints = deriveEndpoints(sim.today, 20);
+    // Simulated endpoint totals derived from today's simulated total
+    const sim = await tickAndGet();
+    const simTotal = sim.today;
+    const simEndpoints = deriveEndpoints(simTotal, 20);
 
-    // Merge
+    // Merge real + simulated
     const combined = new Map<string, number>();
     for (const e of simEndpoints) combined.set(e.endpoint, e.count);
     for (const [ep, count] of realMap.entries()) {
@@ -56,6 +60,7 @@ export async function GET() {
 
     return Response.json({
       endpoints: sorted,
+      todayTotal: simTotal + realToday,
       updatedAt: new Date().toISOString(),
     });
   } catch (err: any) {

@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-import { tickAndGet } from "@/app/lib/simulatedStats";
+import {
+  tickAndGet,
+  snapshotToday,
+  getBusiestDay,
+} from "@/app/lib/simulatedStats";
 
 export const revalidate = 0;
 
@@ -10,85 +14,15 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// ============================================================
-// Daily history — used for Last 7 Days / Avg / Busiest
-// Stored in sim_daily_history (one row per day)
-// ============================================================
-
-async function recordTodaySnapshot(total: number, today: number) {
-  const supabase = getSupabase();
-  if (!supabase) return;
-
-  const day = new Date().toISOString().slice(0, 10);
-
-  try {
-    await supabase.from("sim_daily_history").upsert(
-      {
-        day,
-        total,
-        count: today,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "day" }
-    );
-  } catch (e) {
-    console.error("daily snapshot failed:", e);
-  }
-}
-
-async function getLast7Days(): Promise<{
-  last7Days: number;
-  avgPerDay: number;
-  busiestDay: number;
-  busiestDayDate: string;
-}> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { last7Days: 0, avgPerDay: 0, busiestDay: 0, busiestDayDate: "" };
-  }
-
-  try {
-    const { data } = await supabase
-      .from("sim_daily_history")
-      .select("day, count")
-      .order("day", { ascending: false })
-      .limit(7);
-
-    if (!data || data.length === 0) {
-      return { last7Days: 0, avgPerDay: 0, busiestDay: 0, busiestDayDate: "" };
-    }
-
-    const total = data.reduce((a, b: any) => a + (b.count || 0), 0);
-    const avg = Math.floor(total / data.length);
-    const busiest = [...data].sort(
-      (a: any, b: any) => (b.count || 0) - (a.count || 0)
-    )[0];
-
-    return {
-      last7Days: total,
-      avgPerDay: avg,
-      busiestDay: busiest?.count || 0,
-      busiestDayDate: busiest?.day || "",
-    };
-  } catch (e) {
-    console.error("last 7 days failed:", e);
-    return { last7Days: 0, avgPerDay: 0, busiestDay: 0, busiestDayDate: "" };
-  }
-}
-
-// ============================================================
-// Main handler
-// ============================================================
-
 export async function GET() {
   try {
-    // 1. Get the running simulated counters (handles daily + monthly reset)
+    // 1. Advance the simulator (daily / monthly reset handled inside)
     const sim = await tickAndGet();
 
-    // 2. Persist today's snapshot for Last 7 Days / Avg / Busiest
-    await recordTodaySnapshot(sim.total, sim.today);
+    // 2. Persist today's snapshot so history stays current
+    await snapshotToday(sim.total, sim.today);
 
-    // 3. Get real request counts from api_requests
+    // 3. Real requests from the api_requests table (if it exists)
     let realTotal = 0;
     let realToday = 0;
     let realMonth = 0;
@@ -135,18 +69,28 @@ export async function GET() {
       }
     }
 
-    // 4. Compute last 7 days metrics
-    const last7 = await getLast7Days();
+    // 4. Busiest day across ALL history
+    const busiest = await getBusiestDay();
+
+    // 5. Today's combined number (sim + real)
+    const todayCombined = sim.today + realToday;
 
     return Response.json({
+      // Core counts
       total: sim.total + realTotal,
-      today: sim.today + realToday,
+      today: todayCombined,
       month: sim.month + realMonth,
+
+      // Unique visitors (approx)
       uniqueToday: uniqueToday + Math.floor(sim.today / 12),
-      last7Days: last7.last7Days,
-      avgPerDay: last7.avgPerDay,
-      busiestDay: last7.busiestDay,
-      busiestDayDate: last7.busiestDayDate,
+
+      // Avg / Day — as requested: today's total / 1
+      avgPerDay: todayCombined,
+
+      // Busiest day — real max across all history
+      busiestDay: busiest.count,
+      busiestDayDate: busiest.date,
+
       updatedAt: new Date().toISOString(),
     });
   } catch (err: any) {

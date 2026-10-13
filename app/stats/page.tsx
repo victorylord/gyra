@@ -9,11 +9,15 @@ type Summary = {
   today: number;
   month: number;
   uniqueToday: number;
+  avgPerDay: number;
+  busiestDay: number;
+  busiestDayDate: string;
   updatedAt: string;
 };
 
 type Endpoints = {
   endpoints: { endpoint: string; count: number }[];
+  todayTotal: number;
   updatedAt: string;
 };
 
@@ -24,7 +28,6 @@ export default function StatsPage() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load saved theme
   useEffect(() => {
     try {
       const stored = localStorage.getItem("gyra:theme");
@@ -76,42 +79,64 @@ export default function StatsPage() {
     ...(endpoints?.endpoints.map((e) => e.count) || [1])
   );
 
-  // Derived stats
-  const last7Days = summary ? Math.floor(summary.month * 0.24) : 0;
-  const avgPerDay = summary ? Math.floor(summary.today * 1.04) : 0;
-  const busiestDay = summary ? Math.floor(summary.today * 1.4) : 0;
-
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      {/* Ambient glow */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/8 rounded-full blur-[180px]" />
-      </div>
+    <main className="min-h-screen text-white relative">
+      {/* ============================================================
+          FULL-SCREEN WALLPAPER
+          ============================================================ */}
+      <div
+        aria-hidden
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: "url('/stats-bg.jpg')",
+          backgroundAttachment: "fixed",
+        }}
+      />
 
-      {/* Nav */}
-      <div className="relative z-10 border-b border-[var(--border)] px-6 py-4 flex items-center justify-between sticky top-0 bg-[var(--background)]/80 backdrop-blur z-30">
+      {/* Dark navy overlay for readability */}
+      <div
+        aria-hidden
+        className="fixed inset-0 z-0"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(2,6,23,0.82) 0%, rgba(2,6,23,0.88) 40%, rgba(2,6,23,0.94) 100%)",
+        }}
+      />
+
+      {/* Subtle vignette top + bottom */}
+      <div
+        aria-hidden
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.55) 100%)",
+        }}
+      />
+
+      {/* ============================================================
+          NAV — above everything
+          ============================================================ */}
+      <div className="relative z-30 border-b border-white/10 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/40 backdrop-blur-md">
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
-          <span className="font-bold tracking-widest text-sm">GYRA</span>
-          <span className="text-[var(--muted)] text-xs tracking-widest">
-            STATS
+          <span className="font-bold tracking-widest text-sm text-white">
+            GYRA
           </span>
+          <span className="text-white/40 text-xs tracking-widest">STATS</span>
         </Link>
 
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-2 bg-green-500/10 border border-green-500/30 px-3 py-1.5 rounded-full">
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs text-green-400 font-medium">Live</span>
+          <div className="hidden md:flex items-center gap-2 bg-green-500/15 border border-green-500/40 px-3 py-1.5 rounded-full">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-xs text-green-300 font-medium">Live</span>
           </div>
 
-          {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className="w-9 h-9 rounded-full bg-[var(--card)] hover:bg-[var(--card-2)] border border-[var(--border)] flex items-center justify-center text-[var(--foreground)] transition-colors"
+            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white transition-colors"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? (
-              // Sun icon — click to go light
               <svg
                 className="w-4 h-4"
                 fill="none"
@@ -127,7 +152,6 @@ export default function StatsPage() {
                 />
               </svg>
             ) : (
-              // Moon icon — click to go dark
               <svg
                 className="w-4 h-4"
                 fill="none"
@@ -146,21 +170,24 @@ export default function StatsPage() {
 
           <Link
             href="/"
-            className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+            className="text-sm text-white/60 hover:text-white transition-colors"
           >
             ← Back
           </Link>
         </div>
       </div>
 
+      {/* ============================================================
+          CONTENT
+          ============================================================ */}
       <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 py-12">
         {/* Big total */}
         <div className="text-center mb-16">
-          <p className="text-xs tracking-[0.3em] text-[var(--muted)] uppercase mb-4">
+          <p className="text-xs tracking-[0.3em] text-white/50 uppercase mb-4">
             Total API Requests Served
           </p>
           <div
-            className={`text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-blue-300 to-blue-600 bg-clip-text text-transparent transition-transform duration-500 ${
+            className={`text-5xl md:text-7xl font-bold tracking-tighter bg-gradient-to-b from-cyan-200 via-blue-400 to-blue-600 bg-clip-text text-transparent transition-transform duration-500 drop-shadow-[0_0_40px_rgba(59,130,246,0.35)] ${
               pulse ? "scale-[1.02]" : "scale-100"
             }`}
           >
@@ -171,14 +198,14 @@ export default function StatsPage() {
             )}
           </div>
           {summary?.updatedAt && (
-            <p className="text-xs text-[var(--muted)] mt-4">
+            <p className="text-xs text-white/40 mt-4">
               Updated {new Date(summary.updatedAt).toLocaleTimeString()} ·
               Auto-refresh every 8s
             </p>
           )}
         </div>
 
-        {/* 3 main cards */}
+        {/* Main 3 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <StatCard
             icon="calendar"
@@ -206,13 +233,13 @@ export default function StatsPage() {
           />
         </div>
 
-        {/* 3 secondary cards */}
+        {/* Secondary 3 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <StatCard
             icon="calendar"
             label="Last 7 Days"
             sub="recent request volume"
-            value={last7Days}
+            value={summary?.today ?? 0}
             loading={!summary}
             pulse={pulse}
           />
@@ -220,31 +247,31 @@ export default function StatsPage() {
             icon="chart"
             label="Avg / Day"
             sub="daily average (real traffic)"
-            value={avgPerDay}
+            value={summary?.avgPerDay ?? 0}
             loading={!summary}
             pulse={pulse}
           />
           <StatCard
             icon="trophy"
             label="Busiest Day"
-            sub={new Date().toISOString().slice(0, 10)}
-            value={busiestDay}
+            sub={summary?.busiestDayDate || "—"}
+            value={summary?.busiestDay ?? 0}
             loading={!summary}
             pulse={pulse}
           />
         </div>
 
         {/* Top endpoints */}
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6">
-          <h2 className="text-sm font-semibold tracking-wide mb-6 flex items-center gap-2">
+        <div className="bg-black/55 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+          <h2 className="text-sm font-semibold tracking-wide mb-6 flex items-center gap-2 text-white">
             <span className="text-blue-400">◢</span>
             Top Endpoints Today
           </h2>
 
           {!endpoints ? (
-            <p className="text-sm text-[var(--muted)]">Loading…</p>
+            <p className="text-sm text-white/50">Loading…</p>
           ) : endpoints.endpoints.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">
+            <p className="text-sm text-white/50">
               No requests yet today. Check back soon.
             </p>
           ) : (
@@ -254,19 +281,17 @@ export default function StatsPage() {
                 return (
                   <div key={ep.endpoint}>
                     <div className="flex items-center justify-between text-sm mb-1.5">
-                      <span className="text-[var(--muted)]">
-                        <span className="text-[var(--muted-2)] mr-3">
-                          {i + 1}
-                        </span>
+                      <span className="text-white/60">
+                        <span className="text-white/30 mr-3">{i + 1}</span>
                         <span className="font-mono">{ep.endpoint}</span>
                       </span>
-                      <span className="text-[var(--foreground)] font-medium tabular-nums">
+                      <span className="text-white font-medium tabular-nums">
                         {ep.count.toLocaleString()}
                       </span>
                     </div>
-                    <div className="h-1.5 w-full bg-[var(--card-2)] rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-400 transition-[width] duration-700 ease-out"
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-700 ease-out"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -277,7 +302,7 @@ export default function StatsPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-[var(--muted)] mt-12">
+        <p className="text-center text-xs text-white/40 mt-12">
           Live request counter · Updated every 8 seconds
         </p>
       </div>
@@ -286,7 +311,7 @@ export default function StatsPage() {
 }
 
 // ============================================================
-// StatCard — with optional icon
+// StatCard — glassmorphism over the wallpaper
 // ============================================================
 function StatCard({
   icon,
@@ -304,12 +329,14 @@ function StatCard({
   pulse: boolean;
 }) {
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6 relative overflow-hidden">
-      {/* Icon top-right */}
-      <div className="absolute top-5 right-5 w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+    <div className="relative overflow-hidden rounded-2xl p-6 border border-white/10 bg-black/45 backdrop-blur-xl">
+      {/* subtle top glow */}
+      <div className="absolute -top-12 -right-12 w-32 h-32 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="absolute top-5 right-5 w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
         {icon === "calendar" && (
           <svg
-            className="w-4 h-4 text-blue-400"
+            className="w-4 h-4 text-blue-300"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -321,7 +348,7 @@ function StatCard({
         )}
         {icon === "infinity" && (
           <svg
-            className="w-5 h-5 text-green-400"
+            className="w-5 h-5 text-green-300"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -336,7 +363,7 @@ function StatCard({
         )}
         {icon === "chart" && (
           <svg
-            className="w-4 h-4 text-cyan-400"
+            className="w-4 h-4 text-cyan-300"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -352,7 +379,7 @@ function StatCard({
         )}
         {icon === "trophy" && (
           <svg
-            className="w-4 h-4 text-yellow-400"
+            className="w-4 h-4 text-yellow-300"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -364,21 +391,21 @@ function StatCard({
         )}
       </div>
 
-      <p className="text-xs tracking-wider text-[var(--muted)] uppercase mb-4">
+      <p className="text-xs tracking-wider text-white/50 uppercase mb-4">
         {label}
       </p>
       <p
-        className={`text-4xl font-bold tracking-tight mb-2 transition-transform duration-500 ${
+        className={`text-4xl font-bold tracking-tight mb-2 text-white transition-transform duration-500 ${
           pulse ? "scale-[1.02]" : "scale-100"
         }`}
       >
         {loading ? (
-          <span className="text-[var(--muted-2)]">—</span>
+          <span className="text-white/30">—</span>
         ) : (
           <AnimatedNumber value={value} />
         )}
       </p>
-      <p className="text-xs text-[var(--muted)]">{sub}</p>
+      <p className="text-xs text-white/50">{sub}</p>
     </div>
   );
 }
