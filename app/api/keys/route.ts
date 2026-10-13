@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { createHash, randomBytes } from "crypto";
+import { randomBytes } from "crypto";
 import { getUserFromToken } from "@/app/lib/subscription";
 
 function getAdmin() {
@@ -9,15 +9,21 @@ function getAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function generateKey(): string {
-  // 32 random bytes → base64url → trim to 40 chars
-  return (
-    "gyra_" +
-    randomBytes(30).toString("base64url").replace(/[-_]/g, "").slice(0, 40)
-  );
+const VALID_CATEGORIES = ["ai", "media", "network", "utilities"];
+
+const KEY_PREFIXES: Record<string, string> = {
+  ai: "gyra_",
+  media: "gyramedia_",
+  network: "gyranet_",
+  utilities: "gyrautils_",
+};
+
+function generateKey(category: string): string {
+  const prefix = KEY_PREFIXES[category] || "gyra_";
+  const random = randomBytes(30).toString("base64url").replace(/[-_]/g, "").slice(0, 40);
+  return prefix + random;
 }
 
-// GET — list user's keys (masked)
 export async function GET(req: Request) {
   try {
     const token = (req.headers.get("authorization") || "")
@@ -28,12 +34,21 @@ export async function GET(req: Request) {
     const user = await getUserFromToken(token);
     if (!user) return unauthorized();
 
+    const url = new URL(req.url);
+    const categoryFilter = url.searchParams.get("category");
+
     const admin = getAdmin();
-    const { data, error } = await admin
+    let query = admin
       .from("api_keys")
-      .select("id, name, key, active, created_at, last_used, request_count")
+      .select("id, name, key, category, active, created_at, last_used, request_count")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
+
+    if (categoryFilter && VALID_CATEGORIES.includes(categoryFilter)) {
+      query = query.eq("category", categoryFilter);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return Response.json(
@@ -42,11 +57,11 @@ export async function GET(req: Request) {
       );
     }
 
-    // Mask the keys — never return the full key after creation
     const masked = (data || []).map((k: any) => ({
       id: k.id,
       name: k.name,
-      keyPreview: `${k.key.slice(0, 12)}••••••••${k.key.slice(-4)}`,
+      category: k.category || "ai",
+      keyPreview: `${k.key.slice(0, 14)}••••••••${k.key.slice(-4)}`,
       active: k.active,
       created_at: k.created_at,
       last_used: k.last_used,
@@ -62,7 +77,6 @@ export async function GET(req: Request) {
   }
 }
 
-// POST — create a new key
 export async function POST(req: Request) {
   try {
     const token = (req.headers.get("authorization") || "")
@@ -75,14 +89,28 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const name = String(body?.name || "Default key").slice(0, 60);
+    const category = String(body?.category || "ai");
+
+    if (!VALID_CATEGORIES.includes(category)) {
+      return Response.json(
+        {
+          error: {
+            code: "invalid_category",
+            message: `Category must be one of: ${VALID_CATEGORIES.join(", ")}`,
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     const admin = getAdmin();
 
-    // Cap at 10 active keys per user
+    // Cap at 10 active keys per user per category
     const { count } = await admin
       .from("api_keys")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
+      .eq("category", category)
       .eq("active", true);
 
     if ((count ?? 0) >= 10) {
@@ -90,14 +118,14 @@ export async function POST(req: Request) {
         {
           error: {
             code: "too_many_keys",
-            message: "You've reached the maximum of 10 active API keys.",
+            message: `You've reached the maximum of 10 active ${category} keys.`,
           },
         },
         { status: 400 }
       );
     }
 
-    const key = generateKey();
+    const key = generateKey(category);
 
     const { data, error } = await admin
       .from("api_keys")
@@ -105,6 +133,7 @@ export async function POST(req: Request) {
         user_id: user.id,
         key,
         name,
+        category,
         active: true,
       })
       .select()
@@ -117,11 +146,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Return the full key ONCE — never again
     return Response.json({
       id: data.id,
       key: data.key,
       name: data.name,
+      category: data.category,
       created_at: data.created_at,
     });
   } catch (err: any) {
