@@ -28,20 +28,30 @@ type SimRow = {
   total: number;
   today: number;
   month: number;
+  today_date: string;   // "2026-10-13"
+  month_key: string;    // "2026-10"
   last_tick_at: string;
 };
 
-/**
- * Reads the current stats row from Supabase.
- * If enough time has passed, calculates how many ticks should have
- * fired and applies them atomically in one update.
- */
+function todayUTC(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function monthUTC(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
 export async function tickAndGet(): Promise<SimRow> {
   const admin = getAdmin();
+  const nowDay = todayUTC();
+  const nowMonth = monthUTC();
+
   const fallback: SimRow = {
-    total: 1_108_864,
-    today: 23_030,
-    month: 688_800,
+    total: 908_864,
+    today: 0,
+    month: 0,
+    today_date: nowDay,
+    month_key: nowMonth,
     last_tick_at: new Date().toISOString(),
   };
 
@@ -50,54 +60,66 @@ export async function tickAndGet(): Promise<SimRow> {
   try {
     const { data, error } = await admin
       .from("sim_stats")
-      .select("total, today, month, last_tick_at")
+      .select("total, today, month, today_date, month_key, last_tick_at")
       .eq("id", 1)
       .maybeSingle();
 
     if (error || !data) return fallback;
 
-    const now = Date.now();
-    const lastTick = new Date(data.last_tick_at).getTime();
-    const elapsed = now - lastTick;
-    const ticks = Math.floor(elapsed / TICK_INTERVAL_MS);
+    const row = data as SimRow;
 
-    if (ticks <= 0) return data as SimRow;
-
-    // Calculate total accumulated increments across missed ticks
-    let totalDelta = 0;
-    for (let i = 0; i < ticks; i++) {
-      totalDelta += rand(MIN_TICK, MAX_TICK);
+    // Handle daily reset
+    let today = Number(row.today);
+    if (row.today_date !== nowDay) {
+      today = 0;
     }
 
-    // Cap how much can accumulate at once (prevents huge jumps if server slept for days)
-    const MAX_JUMP = 500;
-    totalDelta = Math.min(totalDelta, MAX_JUMP);
+    // Handle monthly reset
+    let month = Number(row.month);
+    if (row.month_key !== nowMonth) {
+      month = 0;
+    }
+
+    // Calculate elapsed ticks since last update
+    const lastTick = new Date(row.last_tick_at).getTime();
+    const elapsed = Date.now() - lastTick;
+    const ticks = Math.floor(elapsed / TICK_INTERVAL_MS);
+
+    let total = Number(row.total);
+
+    if (ticks > 0) {
+      let totalDelta = 0;
+      for (let i = 0; i < ticks; i++) {
+        totalDelta += rand(MIN_TICK, MAX_TICK);
+      }
+      totalDelta = Math.min(totalDelta, 500);
+
+      total += totalDelta;
+      today += totalDelta;
+      month += totalDelta;
+    }
 
     const nextRow: SimRow = {
-      total: Number(data.total) + totalDelta,
-      today: Number(data.today) + totalDelta,
-      month: Number(data.month) + totalDelta,
-      last_tick_at: new Date(
-        lastTick + ticks * TICK_INTERVAL_MS
-      ).toISOString(),
+      total,
+      today,
+      month,
+      today_date: nowDay,
+      month_key: nowMonth,
+      last_tick_at: new Date().toISOString(),
     };
 
-    // Write back
-    const { error: updateErr } = await admin
+    await admin
       .from("sim_stats")
       .update({
         total: nextRow.total,
         today: nextRow.today,
         month: nextRow.month,
+        today_date: nextRow.today_date,
+        month_key: nextRow.month_key,
         last_tick_at: nextRow.last_tick_at,
         updated_at: new Date().toISOString(),
       })
       .eq("id", 1);
-
-    if (updateErr) {
-      console.error("sim_stats update failed:", updateErr);
-      return data as SimRow;
-    }
 
     return nextRow;
   } catch (e) {
@@ -105,10 +127,6 @@ export async function tickAndGet(): Promise<SimRow> {
     return fallback;
   }
 }
-
-// ============================================================
-// Endpoints derived from the current "today" total
-// ============================================================
 
 export function deriveEndpoints(
   todayTotal: number,
@@ -121,9 +139,7 @@ export function deriveEndpoints(
     const ep = ENDPOINT_WEIGHTS[i];
     const isLast = i === ENDPOINT_WEIGHTS.length - 1;
 
-    // Use weight to split, with a small deterministic jitter based on the total
-    // so it stays consistent between refreshes
-    const jitter = ((todayTotal * (i + 7)) % 100) / 1000; // 0..0.099
+    const jitter = ((todayTotal * (i + 7)) % 100) / 1000;
     const pct = ep.weight / 100 + (jitter - 0.05) * 0.02;
 
     const share = isLast
@@ -135,7 +151,6 @@ export function deriveEndpoints(
     if (allocated >= todayTotal) break;
   }
 
-  // Fix rounding
   const sum = results.reduce((a, b) => a + b.count, 0);
   const diff = todayTotal - sum;
   if (diff !== 0 && results.length > 0) {
