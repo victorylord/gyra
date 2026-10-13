@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import Logo from "../Logo";
+import FeatureGrid from "../components/FeatureGrid";
+import ApiCategorySection from "../components/ApiCategorySection";
+import { API_CATEGORIES } from "../lib/apiCategories";
 
 export default function ApiPage() {
   return (
@@ -13,26 +16,30 @@ export default function ApiPage() {
       </div>
 
       {/* Nav */}
-      <nav className="relative z-30 flex items-center justify-between px-6 md:px-12 py-5 border-b border-white/5 backdrop-blur-sm bg-black/40">
+      <nav className="relative z-30 flex items-center justify-between px-6 md:px-12 py-5 border-b border-white/5 backdrop-blur-sm bg-black/40 sticky top-0">
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
           <span className="font-bold tracking-widest text-sm">GYRA</span>
           <span className="text-zinc-600 text-xs tracking-widest">API</span>
         </Link>
+
         <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
-          <Link href="/docs" className="hover:text-white transition-colors">
-            Docs
-          </Link>
-          <Link href="/products" className="hover:text-white transition-colors">
-            Products
-          </Link>
-          <Link href="/playground" className="hover:text-white transition-colors">
-            Playground
-          </Link>
-          <Link href="/status" className="hover:text-white transition-colors">
-            Status
-          </Link>
+          {API_CATEGORIES.map((c) => (
+            <a
+              key={c.id}
+              href={`#${c.id}`}
+              className="hover:text-white transition-colors flex items-center gap-2"
+            >
+              {c.name.replace("Gyra ", "").replace(" API", "")}
+              {c.status === "live" ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+              )}
+            </a>
+          ))}
         </div>
+
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
@@ -49,11 +56,8 @@ export default function ApiPage() {
         </div>
       </nav>
 
-      {/* ============================================================
-          HERO WITH FULL-WIDTH VIDEO BACKGROUND
-          ============================================================ */}
+      {/* ============ HERO WITH VIDEO ============ */}
       <section className="relative z-10 w-full min-h-[80vh] flex items-center overflow-hidden">
-        {/* Video background */}
         <video
           autoPlay
           muted
@@ -66,7 +70,6 @@ export default function ApiPage() {
           <source src="/api-hero-bg.mp4" type="video/mp4" />
         </video>
 
-        {/* Dark overlay */}
         <div
           aria-hidden
           className="absolute inset-0 z-[1]"
@@ -76,7 +79,6 @@ export default function ApiPage() {
           }}
         />
 
-        {/* Blue glow */}
         <div
           aria-hidden
           className="absolute inset-0 z-[2] pointer-events-none"
@@ -86,7 +88,6 @@ export default function ApiPage() {
           }}
         />
 
-        {/* Hero content */}
         <div className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24 w-full">
           <div className="max-w-3xl">
             <p className="text-xs tracking-[0.4em] text-white/50 uppercase mb-8">
@@ -94,14 +95,15 @@ export default function ApiPage() {
             </p>
 
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tighter leading-[0.95] mb-8 text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.6)]">
-              One intelligence layer.
+              Four APIs.
               <br />
-              Every modality.
+              One platform.
             </h1>
 
             <p className="text-base md:text-xl text-white/75 max-w-2xl leading-relaxed mb-12">
-              One API for chat, vision, files, voice, and video.
-              OpenAI-compatible. Free to start. Built for Nigeria and the world.
+              AI, media intelligence, network tools, and utilities — all under
+              one developer platform. OpenAI-compatible. Free to start. Built
+              for Nigeria and the world.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4">
@@ -112,16 +114,15 @@ export default function ApiPage() {
                 Get your free API key
               </Link>
               <Link
-                href="/docs"
+                href="#ai"
                 className="border border-white/20 hover:border-white/50 text-white px-8 py-4 rounded-full font-medium transition-colors backdrop-blur-sm bg-white/5 text-center"
               >
-                Read the docs →
+                Explore APIs ↓
               </Link>
             </div>
           </div>
         </div>
 
-        {/* Scroll indicator */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 animate-bounce opacity-40">
           <svg
             className="w-5 h-5 text-white"
@@ -136,6 +137,29 @@ export default function ApiPage() {
               d="M19 14l-7 7m0 0l-7-7m7 7V3"
             />
           </svg>
+        </div>
+      </section>
+
+      {/* ============ STAT STRIP ============ */}
+      <section className="relative z-10 border-y border-white/5 py-8">
+        <div className="max-w-6xl mx-auto px-6 md:px-12">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+            {[
+              { value: "4", label: "API Categories" },
+              { value: "24+", label: "Endpoints" },
+              { value: "<200ms", label: "Avg Latency" },
+              { value: "99.9%", label: "Uptime" },
+            ].map((s) => (
+              <div key={s.label} className="text-center">
+                <p className="text-2xl md:text-3xl font-bold tracking-tight text-white mb-1">
+                  {s.value}
+                </p>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+                  {s.label}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -167,8 +191,18 @@ export default function ApiPage() {
         </div>
       </section>
 
+      {/* ============ CATEGORY SECTIONS ============ */}
+      {API_CATEGORIES.map((category, i) => (
+        <ApiCategorySection
+          key={category.id}
+          category={category}
+          index={i}
+          reversed={i % 2 === 1}
+        />
+      ))}
+
       {/* ============ CONSTELLATION ============ */}
-      <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-24">
+      <section className="relative z-10 border-t border-white/5 max-w-6xl mx-auto px-6 md:px-12 py-24">
         <div className="text-center mb-16">
           <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
             The Gyra Ecosystem
@@ -292,71 +326,49 @@ export default function ApiPage() {
       {/* ============ FEATURES ============ */}
       <section className="relative z-10 border-t border-white/5 py-24">
         <div className="max-w-6xl mx-auto px-6 md:px-12">
-          <div className="grid md:grid-cols-3 gap-12">
-            {[
-              {
-                title: "One endpoint. Every model.",
-                body: "Chat, vision, files, voice, and video — routed through a single OpenAI-compatible API.",
-              },
-              {
-                title: "Built for Overseas.",
-                body: "Naira and USD pricing, understood natively.",
-              },
-              {
-                title: "Free to start.",
-                body: "Get a free API key in 30 seconds. No credit card required. Pay only for video and voice.",
-              },
-            ].map((f) => (
-              <div key={f.title}>
-                <h3 className="text-xl font-semibold mb-3 tracking-tight">
-                  {f.title}
-                </h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  {f.body}
-                </p>
-              </div>
-            ))}
+          <div className="text-center mb-16">
+            <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
+              Why developers choose Gyra
+            </p>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tighter">
+              Built for builders.
+            </h2>
           </div>
-        </div>
-      </section>
 
-      {/* ============ CUBE SECTION ============ */}
-      <section className="relative z-10 border-t border-white/5 py-24">
-        <div className="max-w-5xl mx-auto px-6 md:px-12">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div>
-              <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
-                Built for developers
-              </p>
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tighter leading-tight mb-6">
-                OpenAI-compatible.
-                <br />
-                Drop-in ready.
-              </h2>
-              <p className="text-zinc-400 leading-relaxed mb-8">
-                Swap one line of code. Change your base URL to{" "}
-                <code className="bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-xs font-mono text-blue-300">
-                  gyra.ng/api/v1
-                </code>{" "}
-                and everything else stays the same.
-              </p>
-              <Link
-                href="/docs"
-                className="text-blue-400 hover:text-blue-300 text-sm inline-flex items-center gap-1"
-              >
-                Read the integration guide <span>→</span>
-              </Link>
-            </div>
-
-            <div className="relative flex items-center justify-center">
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/15 to-blue-500/10 rounded-3xl blur-2xl" />
-              <img
-                src="/api-cube.png"
-                alt="Gyra 3D"
-                className="relative w-full max-w-sm object-contain drop-shadow-[0_0_60px_rgba(168,85,247,0.3)]"
-              />
-            </div>
-          </div>
+          <FeatureGrid
+            features={[
+              {
+                icon: "⚡",
+                title: "One key. Four APIs.",
+                desc: "AI, Media, Network, and Utilities — all under one developer account with per-category access.",
+              },
+              {
+                icon: "🌍",
+                title: "Nigeria-first.",
+                desc: "Naira pricing, Nigerian English, Yoruba, Igbo, Hausa, and Pidgin understood natively.",
+              },
+              {
+                icon: "🔒",
+                title: "Secure by default.",
+                desc: "Keys stored hashed, revocable instantly, never logged in plaintext. Rate limits enforced server-side.",
+              },
+              {
+                icon: "🎬",
+                title: "Media intelligence.",
+                desc: "Video transcripts, summaries, music metadata — the legitimate way to work with media APIs.",
+              },
+              {
+                icon: "📊",
+                title: "Real analytics.",
+                desc: "Every request logged. Per-key usage, error rates, latency, and top endpoints.",
+              },
+              {
+                icon: "💰",
+                title: "Credits, not subscriptions.",
+                desc: "Pay only for what you use. Top up anytime. No lock-in, no hidden fees.",
+              },
+            ]}
+          />
         </div>
       </section>
 
@@ -374,9 +386,7 @@ export default function ApiPage() {
 
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-black">
-              <span className="text-xs text-zinc-500 font-mono">
-                javascript
-              </span>
+              <span className="text-xs text-zinc-500 font-mono">javascript</span>
               <button className="text-xs text-zinc-400 hover:text-white transition-colors">
                 Copy
               </button>
@@ -404,53 +414,6 @@ console.log(data.choices[0].message.content);`}
               className="text-blue-400 hover:text-blue-300 text-sm inline-flex items-center gap-1"
             >
               More examples in the docs <span>→</span>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ============ PRODUCTS ============ */}
-      <section className="relative z-10 border-t border-white/5 py-24">
-        <div className="max-w-6xl mx-auto px-6 md:px-12">
-          <div className="text-center mb-16">
-            <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
-              Explore our products
-            </p>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tighter">
-              Every AI in one place.
-            </h2>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            {[
-              { icon: "💬", title: "Chat", desc: "Conversational AI with vision and files" },
-              { icon: "🎬", title: "Video", desc: "$2 per generation" },
-              { icon: "🎙️", title: "Voice", desc: "Natural speech synthesis" },
-              { icon: "🎨", title: "Images", desc: "Text-to-image and editing" },
-              { icon: "📄", title: "Files", desc: "PDFs, docs, spreadsheets" },
-              { icon: "🔎", title: "Search", desc: "Live web results" },
-            ].map((p) => (
-              <Link
-                key={p.title}
-                href="/products"
-                className="bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-2xl p-6 transition-colors group"
-              >
-                <span className="text-3xl block mb-4">{p.icon}</span>
-                <h3 className="font-semibold mb-1.5">{p.title}</h3>
-                <p className="text-xs text-zinc-500">{p.desc}</p>
-                <span className="text-xs text-blue-400 group-hover:text-blue-300 transition-colors mt-3 inline-block">
-                  Explore →
-                </span>
-              </Link>
-            ))}
-          </div>
-
-          <div className="text-center mt-12">
-            <Link
-              href="/products"
-              className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
-            >
-              See all products <span>→</span>
             </Link>
           </div>
         </div>
