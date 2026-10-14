@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useState, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase, getAccessToken } from "../supabase";
@@ -23,7 +23,7 @@ const WALLETS = {
     description:
       "Used for YouTube transcripts, TikTok metadata, Spotify search, and audio transcription.",
     presets: [5, 10, 25, 50, 100],
-    accent: "purple",
+    accent: "purple" as const,
     costLabel: "$0.90 per request",
   },
   network: {
@@ -33,7 +33,7 @@ const WALLETS = {
     description:
       "Used for IP lookup, DNS, WHOIS, SSL checks, and website screenshots.",
     presets: [5, 10, 25, 50, 100],
-    accent: "cyan",
+    accent: "cyan" as const,
     costLabel: "$0.05 per request",
   },
   ai: {
@@ -43,12 +43,34 @@ const WALLETS = {
     description:
       "Used for video generation, voice synthesis, and premium AI features.",
     presets: [5, 10, 25, 50, 100],
-    accent: "blue",
+    accent: "blue" as const,
     costLabel: "Pay-per-use",
   },
 };
 
-export default function UpgradePage() {
+const ACCENT_CLASSES = {
+  purple: {
+    border: "border-purple-500/30",
+    bg: "bg-purple-500/10",
+    text: "text-purple-300",
+  },
+  cyan: {
+    border: "border-cyan-500/30",
+    bg: "bg-cyan-500/10",
+    text: "text-cyan-300",
+  },
+  blue: {
+    border: "border-blue-500/30",
+    bg: "bg-blue-500/10",
+    text: "text-blue-300",
+  },
+};
+
+// ============================================================
+// The actual page uses useSearchParams, so it MUST be
+// inside a Suspense boundary for Next.js prerendering.
+// ============================================================
+function UpgradePageInner() {
   const searchParams = useSearchParams();
   const walletParam = searchParams.get("wallet");
 
@@ -62,7 +84,8 @@ export default function UpgradePage() {
   const [usdAmount, setUsdAmount] = useState(10);
   const [customAmount, setCustomAmount] = useState("");
   const [method, setMethod] = useState<"ngn" | "crypto" | null>(null);
-  const [cryptoNetwork, setCryptoNetwork] = useState<keyof typeof CRYPTO>("TRX");
+  const [cryptoNetwork, setCryptoNetwork] =
+    useState<keyof typeof CRYPTO>("TRX");
 
   const [reference, setReference] = useState("");
   const [screenshot, setScreenshot] = useState<File | null>(null);
@@ -128,13 +151,12 @@ export default function UpgradePage() {
         return;
       }
 
-      // Wallet top-up vs SuperGyra subscription
       const isWalletTopup = wallet !== null;
 
       const payload = isWalletTopup
         ? {
             kind: "credits",
-            wallet: wallet.id, // "media" | "network" | "ai"
+            wallet: wallet.id,
             usdAmount,
             method,
             reference: reference.trim(),
@@ -172,23 +194,7 @@ export default function UpgradePage() {
   };
 
   const accentClasses = wallet
-    ? {
-        purple: {
-          border: "border-purple-500/30",
-          bg: "bg-purple-500/10",
-          text: "text-purple-300",
-        },
-        cyan: {
-          border: "border-cyan-500/30",
-          bg: "bg-cyan-500/10",
-          text: "text-cyan-300",
-        },
-        blue: {
-          border: "border-blue-500/30",
-          bg: "bg-blue-500/10",
-          text: "text-blue-300",
-        },
-      }[wallet.accent as "purple" | "cyan" | "blue"]
+    ? ACCENT_CLASSES[wallet.accent]
     : null;
 
   return (
@@ -223,7 +229,9 @@ export default function UpgradePage() {
                     className={`inline-flex items-center gap-2 ${accentClasses?.bg} ${accentClasses?.border} border px-4 py-2 rounded-full mb-6`}
                   >
                     <span className="text-lg">{wallet.icon}</span>
-                    <span className={`text-sm font-medium ${accentClasses?.text}`}>
+                    <span
+                      className={`text-sm font-medium ${accentClasses?.text}`}
+                    >
                       {wallet.label}
                     </span>
                   </div>
@@ -247,7 +255,6 @@ export default function UpgradePage() {
             </div>
 
             {wallet ? (
-              /* Wallet top-up: amount picker */
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
                   {wallet.presets.map((amt) => {
@@ -292,7 +299,7 @@ export default function UpgradePage() {
                   </div>
                   {usdAmount > 0 && (
                     <p className="text-xs text-zinc-500 mt-3">
-                      You'll pay ≈{" "}
+                      You&apos;ll pay ≈{" "}
                       <span className="text-white font-mono">
                         ₦{ngnAmount.toLocaleString()}
                       </span>{" "}
@@ -310,7 +317,6 @@ export default function UpgradePage() {
                 </button>
               </>
             ) : (
-              /* SuperGyra: plan picker */
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
                   {(Object.keys(PRICING) as PlanId[]).map((id) => {
@@ -338,7 +344,9 @@ export default function UpgradePage() {
                           {p.displayPrice}
                         </p>
                         <p className="text-xs text-zinc-500">
-                          {id === "monthly" ? "Billed monthly" : "Billed yearly"}
+                          {id === "monthly"
+                            ? "Billed monthly"
+                            : "Billed yearly"}
                         </p>
                       </button>
                     );
@@ -462,7 +470,11 @@ export default function UpgradePage() {
                 <p className="text-xs text-zinc-500 uppercase tracking-wider mb-5">
                   Bank transfer details
                 </p>
-                <InfoRow label="Bank" value={BANK.bankName} onCopy={copyToClipboard} />
+                <InfoRow
+                  label="Bank"
+                  value={BANK.bankName}
+                  onCopy={copyToClipboard}
+                />
                 <InfoRow
                   label="Account number"
                   value={BANK.accountNumber}
@@ -489,19 +501,21 @@ export default function UpgradePage() {
                   Choose network
                 </p>
                 <div className="flex flex-wrap gap-2 mb-6">
-                  {(Object.keys(CRYPTO) as (keyof typeof CRYPTO)[]).map((net) => (
-                    <button
-                      key={net}
-                      onClick={() => setCryptoNetwork(net)}
-                      className={`px-4 py-2 rounded-full text-sm border transition-all ${
-                        cryptoNetwork === net
-                          ? "bg-white text-black border-white"
-                          : "bg-transparent text-zinc-400 border-zinc-800 hover:border-zinc-600"
-                      }`}
-                    >
-                      {net}
-                    </button>
-                  ))}
+                  {(Object.keys(CRYPTO) as (keyof typeof CRYPTO)[]).map(
+                    (net) => (
+                      <button
+                        key={net}
+                        onClick={() => setCryptoNetwork(net)}
+                        className={`px-4 py-2 rounded-full text-sm border transition-all ${
+                          cryptoNetwork === net
+                            ? "bg-white text-black border-white"
+                            : "bg-transparent text-zinc-400 border-zinc-800 hover:border-zinc-600"
+                        }`}
+                      >
+                        {net}
+                      </button>
+                    )
+                  )}
                 </div>
 
                 <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">
@@ -529,8 +543,8 @@ export default function UpgradePage() {
             <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 mb-6">
               <p className="text-xs text-blue-300 leading-relaxed">
                 <strong>Important:</strong> Send the exact amount shown. Save
-                your transaction reference or hash — you'll need it on the next
-                step to prove payment.
+                your transaction reference or hash — you&apos;ll need it on the
+                next step to prove payment.
               </p>
             </div>
 
@@ -538,7 +552,7 @@ export default function UpgradePage() {
               onClick={() => setStep("proof")}
               className="w-full bg-white text-black py-4 rounded-full font-semibold hover:bg-zinc-200 transition-colors"
             >
-              I've sent the payment →
+              I&apos;ve sent the payment →
             </button>
           </>
         )}
@@ -556,7 +570,7 @@ export default function UpgradePage() {
               Prove your payment
             </h1>
             <p className="text-zinc-400 mb-8 text-sm">
-              We'll verify within 30 minutes and credit your account.
+              We&apos;ll verify within 30 minutes and credit your account.
             </p>
 
             <label className="block mb-6">
@@ -622,7 +636,7 @@ export default function UpgradePage() {
             <h1 className="text-3xl font-bold mb-3">Payment submitted</h1>
             <p className="text-zinc-400 max-w-md mx-auto leading-relaxed mb-8">
               {wallet
-                ? `We're verifying your payment. Your $${usdAmount} media credits will appear within 30 minutes.`
+                ? `We're verifying your payment. Your $${usdAmount} credits will appear within 30 minutes.`
                 : "We're verifying your payment. SuperGyra will activate within 30 minutes."}
             </p>
             <Link
@@ -638,6 +652,9 @@ export default function UpgradePage() {
   );
 }
 
+// ============================================================
+// InfoRow — bank/crypto detail row with copy
+// ============================================================
 function InfoRow({
   label,
   value,
@@ -664,5 +681,17 @@ function InfoRow({
         Copy
       </button>
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps the inner component in Suspense
+// so Next.js can prerender it at build time.
+// ============================================================
+export default function UpgradePage() {
+  return (
+    <Suspense fallback={null}>
+      <UpgradePageInner />
+    </Suspense>
   );
 }
