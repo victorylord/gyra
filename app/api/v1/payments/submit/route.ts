@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromToken } from "@/app/lib/subscription";
-import { PRICING, ngnToUsd, type PlanId, NGN_PER_USD } from "@/app/lib/paymentConfig";
+import {
+  PRICING,
+  ngnToUsd,
+  NGN_PER_USD,
+  type PlanId,
+} from "@/app/lib/paymentConfig";
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,6 +37,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const kind = String(body?.kind || "subscription");
+    const wallet = body?.wallet ? String(body.wallet) : null;
     const method = String(body?.method || "");
     const reference = String(body?.reference || "").trim();
     const screenshotUrl = body?.screenshotUrl
@@ -59,9 +65,29 @@ export async function POST(req: Request) {
 
     let plan = "credits";
     let amountNgn = 0;
+    let walletColumn: string | null = null;
 
     if (kind === "credits") {
-      // Credit top-up
+      // Determine wallet column
+      if (wallet === "media") {
+        walletColumn = "media_credits_usd";
+      } else if (wallet === "network") {
+        walletColumn = "network_credits_usd";
+      } else if (wallet === "ai" || !wallet) {
+        walletColumn = "credits_usd";
+      } else {
+        return Response.json(
+          {
+            error: {
+              code: "invalid_wallet",
+              message: "Wallet must be media, network, or ai.",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      // Amount
       const usdAmount = Number(body?.usdAmount || 0);
       if (!usdAmount || usdAmount < 1 || usdAmount > 10000) {
         return Response.json(
@@ -75,6 +101,7 @@ export async function POST(req: Request) {
         );
       }
       amountNgn = Math.round(usdAmount * NGN_PER_USD);
+      plan = wallet ? `wallet:${wallet}` : "credits";
     } else {
       // Subscription
       const planId = String(body?.plan || "") as PlanId;
