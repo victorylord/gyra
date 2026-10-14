@@ -23,9 +23,9 @@ export const metadata: Metadata = {
     shortcut: "/icon.png",
   },
   openGraph: {
-    title: "Gyra — Intelligent. Simplified.",
+    title: "Gyra",
     description:
-      "An advanced AI assistant created by Genvia AI Company, owned by Victory Lord.",
+      "An advanced and Simplified AI assistant created by gAi",
     url: "https://gyra.ng",
     siteName: "Gyra",
     images: [
@@ -40,9 +40,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Gyra — Intelligent. Simplified.",
+    title: "Gyra",
     description:
-      "An advanced AI assistant created by Genvia AI Company, owned by Victory Lord.",
+      "An advanced and Simplified AI assistant created by gAi",
     images: ["/icon.png"],
   },
 };
