@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Logo from "../Logo";
+import GyraMark from "../components/GyraMark";
+import VideoHero from "../components/VideoHero";
 
 const SECTIONS = [
   "Introduction",
@@ -733,7 +734,7 @@ client.login(process.env.DISCORD_TOKEN);`}
       {/* Top bar */}
       <div className="border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/95 backdrop-blur z-30">
         <Link href="/" className="flex items-center gap-3">
-          <Logo size={28} animated={false} />
+          <GyraMark size={30} glow={false} animated={false} />
           <span className="font-bold tracking-widest text-sm">GYRA</span>
           <span className="text-zinc-600 text-xs tracking-widest">DOCS</span>
         </Link>
@@ -778,6 +779,39 @@ client.login(process.env.DISCORD_TOKEN);`}
           </Link>
         </div>
       </div>
+
+      {/* ============================================================
+          VIDEO HERO — inserted directly below the nav
+          ============================================================ */}
+      <VideoHero
+        videoSrc="/docs-hero-bg.mp4"
+        posterSrc="/docs-hero-poster.jpg"
+        eyebrow="Gyra Documentation"
+        title={
+          <>
+            Everything you need
+            <br />
+            to build with Gyra.
+          </>
+        }
+        description="Complete reference for the AI API, Media API, and the developer platform. Code examples, authentication, and endpoint documentation."
+        cta={
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Link
+              href="/api-keys"
+              className="bg-white text-black px-7 py-3.5 rounded-full font-medium hover:bg-zinc-200 transition-colors text-center"
+            >
+              Get API key
+            </Link>
+            <Link
+              href="/playground"
+              className="border border-white/20 hover:border-white/50 text-white px-7 py-3.5 rounded-full font-medium transition-colors backdrop-blur-sm bg-white/5 text-center"
+            >
+              Try the Playground →
+            </Link>
+          </div>
+        }
+      />
 
       {/* Body */}
       <div className="flex flex-1">
@@ -858,7 +892,7 @@ client.login(process.env.DISCORD_TOKEN);`}
 
           {/* Footer */}
           <div className="mt-20 pt-8 border-t border-zinc-800/60 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-zinc-600">
-            <p>© 2026 Gyra · Genvia AI Company</p>
+            <p>©️ 2026 Gyra · Genvia AI Company</p>
             <div className="flex flex-wrap gap-5">
               <Link href="/" className="hover:text-white transition-colors">
                 Home

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "./supabase";
-import Logo from "./Logo";
+import GyraMark from "./components/GyraMark";
 
 const TAGLINE = "Intelligence, Simplified.";
 
@@ -143,20 +143,17 @@ export default function Home() {
       {/* Navbar */}
       <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-6 border-b border-white/5 backdrop-blur-sm">
         <Link href="/" className="flex items-center gap-3">
-          <Logo size={32} animated={false} />
+          <GyraMark size={34} glow={false} animated={false} />
           <span className="font-bold tracking-widest text-lg">GYRA</span>
         </Link>
 
-        <div className="flex flex-wrap items-center gap-6 text-xs text-zinc-500">
-        <Link href="/about" className="hover:text-white transition-colors">
-          About
-        </Link>
-        <Link href="/api" className="hover:text-white transition-colors">
-          API
-        </Link>
-        <Link href="/docs" className="hover:text-white transition-colors">
-          Docs
-         </Link>
+        <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
+          <Link href="/docs" className="hover:text-white transition-colors">
+            Docs
+          </Link>
+          <Link href="/api" className="hover:text-white transition-colors">
+            API
+          </Link>
           <Link href="/changelog" className="hover:text-white transition-colors">
             Changelog
           </Link>
@@ -185,11 +182,17 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 pt-24 md:pt-32 pb-24">
+      <section className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 pt-20 md:pt-28 pb-24">
         <div className="flex flex-col items-center text-center">
-          <Logo size={140} animated={true} />
+          {/* Large hero logo — from favicon.ico, with glow */}
+          <div className="hidden md:block">
+            <GyraMark size={260} glow={true} animated={true} />
+          </div>
+          <div className="block md:hidden">
+            <GyraMark size={160} glow={true} animated={true} />
+          </div>
 
-          <h1 className="mt-12 text-5xl md:text-7xl font-bold tracking-tighter leading-none">
+          <h1 className="mt-10 md:mt-12 text-5xl md:text-7xl font-bold tracking-tighter leading-none">
             Gyra
           </h1>
 
@@ -360,7 +363,7 @@ export default function Home() {
       <footer className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 py-12 border-t border-white/5">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <Logo size={28} animated={false} />
+            <GyraMark size={28} glow={false} animated={false} />
             <div>
               <p className="font-bold tracking-widest text-sm">GYRA</p>
               <p className="text-[10px] text-zinc-600 tracking-wider">

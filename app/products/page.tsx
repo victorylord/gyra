@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import Logo from "../Logo";
+import GyraMark from "../components/GyraMark";
+import VideoHero from "../components/VideoHero";
 
 type Category = {
   id: string;
@@ -118,23 +119,76 @@ const CATEGORIES: Category[] = [
 export default function ProductsPage() {
   return (
     <main className="min-h-screen bg-black text-white">
+      {/* Ambient */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-blue-500/8 rounded-full blur-[180px]" />
       </div>
 
-      <div className="relative z-10 border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur">
+      {/* Nav */}
+      <div className="relative z-30 border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur">
         <Link href="/" className="flex items-center gap-3">
-          <Logo size={26} animated={false} />
+          <GyraMark size={30} glow={false} animated={false} />
           <span className="font-bold tracking-widest text-sm">GYRA</span>
           <span className="text-zinc-600 text-xs tracking-widest">PRODUCTS</span>
         </Link>
-        <Link
-          href="/api"
-          className="text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          API Docs →
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link
+            href="/api"
+            className="text-sm text-zinc-400 hover:text-white transition-colors hidden md:inline"
+          >
+            API
+          </Link>
+          <Link
+            href="/docs"
+            className="text-sm text-zinc-400 hover:text-white transition-colors hidden md:inline"
+          >
+            Docs
+          </Link>
+          <Link
+            href="/console"
+            className="text-sm text-zinc-400 hover:text-white transition-colors hidden md:inline"
+          >
+            Console
+          </Link>
+          <Link
+            href="/api"
+            className="text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            API Docs →
+          </Link>
+        </div>
       </div>
+
+      {/* Video Hero */}
+      <VideoHero
+        videoSrc="/products-hero-bg.mp4"
+        posterSrc="/products-hero-poster.jpg"
+        eyebrow="Gyra Products"
+        title={
+          <>
+            One platform.
+            <br />
+            Every AI you need.
+          </>
+        }
+        description="Every capability through the same clean API. Chat is free. Video, voice, and image generation run on credits — pay only for what you use."
+        cta={
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Link
+              href="/api-keys"
+              className="bg-white text-black px-7 py-3.5 rounded-full font-medium hover:bg-zinc-200 transition-colors text-center"
+            >
+              Get API key
+            </Link>
+            <Link
+              href="/api"
+              className="border border-white/20 hover:border-white/50 text-white px-7 py-3.5 rounded-full font-medium transition-colors backdrop-blur-sm bg-white/5 text-center"
+            >
+              Explore APIs →
+            </Link>
+          </div>
+        }
+      />
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 py-16">
         <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
@@ -158,8 +212,9 @@ export default function ProductsPage() {
               Chat is free up to 20 messages per conversation. Video
               generation costs <strong className="text-white">$2.00</strong>{" "}
               per request. Voice synthesis costs{" "}
-              <strong className="text-white">$2.00</strong> per request. Top up
-              your wallet anytime.
+              <strong className="text-white">$2.00</strong> per request. Media
+              API costs <strong className="text-white">$0.90</strong> per
+              request. Top up your wallet anytime.
             </p>
           </div>
         </div>
@@ -219,6 +274,49 @@ export default function ProductsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="relative z-10 border-t border-white/5 py-10">
+        <div className="max-w-6xl mx-auto px-6 md:px-12 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <GyraMark size={24} glow={false} animated={false} />
+            <div>
+              <p className="font-bold tracking-widest text-xs">GYRA</p>
+              <p className="text-[10px] text-zinc-600 tracking-wider">
+                INTELLIGENCE, SIMPLIFIED.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-6 text-xs text-zinc-500">
+            <Link href="/api" className="hover:text-white transition-colors">
+              API
+            </Link>
+            <Link href="/docs" className="hover:text-white transition-colors">
+              Docs
+            </Link>
+            <Link
+              href="/changelog"
+              className="hover:text-white transition-colors"
+            >
+              Changelog
+            </Link>
+            <Link href="/status" className="hover:text-white transition-colors">
+              Status
+            </Link>
+            <a
+              href="https://t.me/Gyra_AiBot"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              Telegram
+            </a>
+          </div>
+        </div>
+        <p className="mt-8 text-[11px] text-zinc-700 text-center">
+          © 2026 Gyra · Genvia AI Company. All rights reserved.
+        </p>
+      </footer>
     </main>
   );
 }
