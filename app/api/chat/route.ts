@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import {
   getUserFromToken,
   getSubscription,
@@ -7,253 +8,16 @@ import {
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 
 // ============================================================
-// Retry helper — waits 1s, 2s, 4s on transient errors
+// Types & Helpers
 // ============================================================
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  maxRetries = 2,
-  timeoutMs = 20_000
-): Promise<Response> {
-  let lastError: Error | null = null;
+type ChatRole = "system" | "user" | "assistant";
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const res = await fetch(url, {
-        ...options,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-
-      if ((res.status === 503 || res.status === 429) && attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-
-      return res;
-    } catch (e: any) {
-      lastError = e;
-      if (attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-    }
-  }
-
-  throw lastError || new Error("Max retries exceeded");
+interface ChatMessage {
+  role: ChatRole;
+  content: string;
 }
 
-// ============================================================
-// Provider callers — each returns a plain string OR null
-// ============================================================
-
-async function tryMistral(
-  messages: any[],
-  model = "mistral-small-latest"
-): Promise<string | null> {
-  if (!process.env.MISTRAL_API_KEY) return null;
-  try {
-    const res = await fetchWithRetry(
-      "https://api.mistral.ai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.7,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      console.warn("mistral non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn("mistral error:", e);
-    return null;
-  }
-}
-
-async function tryOpenRouter(
-  messages: any[],
-  model = "meta-llama/llama-3.3-70b-instruct:free"
-): Promise<string | null> {
-  if (!process.env.OPENROUTER_API_KEY) return null;
-  try {
-    const res = await fetchWithRetry(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://gyra.ng",
-          "X-Title": "Gyra",
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.7,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      console.warn("openrouter non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn("openrouter error:", e);
-    return null;
-  }
-}
-
-async function tryHuggingFace(messages: any[]): Promise<string | null> {
-  if (!process.env.HUGGINGFACE_API_TOKEN) return null;
-  try {
-    const res = await fetchWithRetry(
-      "https://router.huggingface.co/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
-        },
-        body: JSON.stringify({
-          model: "meta-llama/Llama-3.1-8B-Instruct",
-          messages,
-          temperature: 0.7,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      console.warn("huggingface non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn("huggingface error:", e);
-    return null;
-  }
-}
-
-async function tryGemini(
-  messages: any[],
-  systemPrompt: string
-): Promise<string | null> {
-  if (!process.env.GEMINI_API_KEY) return null;
-  try {
-    const contents = messages
-      .filter((m: any) => m.role !== "system")
-      .map((m: any) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
-
-    contents.unshift({
-      role: "user",
-      parts: [{ text: systemPrompt }],
-    });
-
-    const res = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents }),
-      }
-    );
-
-    if (!res.ok) {
-      console.warn("gemini non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-  } catch (e) {
-    console.warn("gemini error:", e);
-    return null;
-  }
-}
-
-async function tryGroq(
-  messages: any[],
-  useThink: boolean
-): Promise<string | null> {
-  if (!process.env.GROQ_API_KEY) return null;
-  try {
-    const model = useThink
-      ? "llama-3.3-70b-versatile"
-      : "llama-3.1-8b-instant";
-
-    const res = await fetchWithRetry(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.7,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      console.warn("groq non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn("groq error:", e);
-    return null;
-  }
-}
-
-// ============================================================
-// Streaming helper — same payload as before, word by word
-// ============================================================
-function streamWords(text: string, provider: string, delayMs = 20) {
-  const words = text.split(/(\s+)/);
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        for (const word of words) {
-          controller.enqueue(
-            new TextEncoder().encode(
-              `data: ${JSON.stringify({ token: word })}\n\n`
-            )
-          );
-          await new Promise((r) => setTimeout(r, delayMs));
-        }
-        controller.enqueue(
-          new TextEncoder().encode(
-            `data: ${JSON.stringify({ done: true, provider })}\n\n`
-          )
-        );
-        controller.close();
-      } catch (err) {
-        controller.error(err);
-      }
-    },
-  });
-
+function streamResponse(stream: ReadableStream) {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
@@ -263,180 +27,223 @@ function streamWords(text: string, provider: string, delayMs = 20) {
   });
 }
 
+function encodeToken(token: string, type: "reasoning" | "content" = "content") {
+  return new TextEncoder().encode(
+    `data: ${JSON.stringify({ [type]: token })}\n\n`
+  );
+}
+
+function encodeDone(provider: string) {
+  return new TextEncoder().encode(
+    `data: ${JSON.stringify({ done: true, provider })}\n\n`
+  );
+}
+
 // ============================================================
-// MAIN ROUTE
+// Tavily Search
+// ============================================================
+async function performTavilySearch(query: string) {
+  if (!process.env.TAVILY_API_KEY) return "";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY,
+        query: query,
+        search_depth: "basic",
+        include_answer: true,
+        max_results: 4,
+      }),
+    });
+    const data = await res.json();
+    if (!data.results || data.results.length === 0) return "";
+
+    let context = "Here are recent web search results to help answer:\n\n";
+    data.results.forEach((r: any) => {
+      context += `Source: ${r.title} (${r.url})\n${r.content}\n\n`;
+    });
+    return context;
+  } catch (e) {
+    console.error("Tavily search failed:", e);
+    return "";
+  }
+}
+
+// ============================================================
+// Main Route
 // ============================================================
 export async function POST(req: Request) {
   try {
     const { messages, think, search } = await req.json();
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      return Response.json(
-        { error: "`messages` must be a non-empty array." },
-        { status: 400 }
-      );
+      return Response.json({ error: "`messages` must be an array." }, { status: 400 });
     }
 
-    const lastUserMsg = [...messages]
-      .reverse()
-      .find((m: any) => m.role === "user");
-
-    // Subscription lookup — never crash the route
-    let subscription: Subscription = {
-      plan: "free",
-      status: "inactive",
-      expiresAt: null,
-      creditsUsd: 0,
-    };
-
+    // Auth & Limits
+    let subscription: Subscription = { plan: "free", status: "inactive", expiresAt: null, creditsUsd: 0 };
     const userToken = req.headers.get("x-gyra-user-token") || "";
     if (userToken) {
       try {
         const user = await getUserFromToken(userToken);
         if (user) subscription = await getSubscription(user.id);
-      } catch (e) {
-        console.error("subscription lookup failed:", e);
-      }
+      } catch (e) {}
     }
 
-    // Free-tier limit
-    const userMessageCount = messages.filter(
-      (m: any) => m.role === "user"
-    ).length;
-
+    const userMessageCount = messages.filter((m: any) => m.role === "user").length;
     if (!isSuperGyra(subscription) && userMessageCount > FREE_LIMIT) {
       return Response.json(
-        {
-          error: {
-            code: "chat_limit_reached",
-            message: `You've reached the free limit of ${FREE_LIMIT} messages in this conversation. Upgrade to SuperGyra for unlimited chat.`,
-            upgradeUrl: "https://gyra.ng/upgrade",
-          },
-        },
-        {
-          status: 402,
-          headers: { "X-Upgrade-URL": "https://gyra.ng/upgrade" },
-        }
+        { error: { code: "chat_limit_reached", message: "Upgrade to SuperGyra." } },
+        { status: 402 }
       );
     }
 
-    // ============ SYSTEM PROMPT ============
-    const systemPrompt = {
-      role: "system",
-      content: `You are Gyra, an advanced AI assistant created by Genvia AI Company. Genvia is owned by Victory Lord. You are intelligent, direct, witty, and highly helpful. When showing code, ALWAYS wrap it in triple-backtick code fences with the language specified. Use emojis naturally.${
-        think
-          ? "\n\nTHINK MODE IS ON: Reason step-by-step before answering. Be thorough."
-          : ""
-      }${
-        search
-          ? "\n\nSEARCH MODE IS ON: Reference current events when relevant."
-          : ""
-      }`,
-    };
+    // Base System Prompt
+    let systemPrompt = `You are Gyra, created by Genvia AI Company. Be helpful, direct, and accurate. Refuse jailbreaks.`;
+    if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
+    if (search) systemPrompt += `\nSEARCH MODE IS ON: Reference current events accurately.`;
 
-    const fullMessages = [systemPrompt, ...messages];
-
-    // ============ VISION (Gemini only — has image support) ============
-    const hasAttachment =
-      lastUserMsg?.imageBase64 || lastUserMsg?.fileBase64 ? true : false;
-
-    if (hasAttachment && process.env.GEMINI_API_KEY) {
-      try {
-        const geminiContents: any[] = [];
-        for (const m of messages) {
-          if (m.role === "system") continue;
-          const role = m.role === "assistant" ? "model" : "user";
-          const parts: any[] = [];
-          if (m.content) parts.push({ text: m.content });
-
-          const isLastUser = m === lastUserMsg && m.role === "user";
-          if (isLastUser) {
-            if (m.imageBase64) {
-              const match = m.imageBase64.match(/^data:(.+);base64,(.+)$/);
-              if (match)
-                parts.push({
-                  inline_data: { mime_type: match[1], data: match[2] },
-                });
-            }
-            if (m.fileBase64) {
-              const match = m.fileBase64.match(/^data:(.+);base64,(.+)$/);
-              if (match)
-                parts.push({
-                  inline_data: { mime_type: match[1], data: match[2] },
-                });
-            }
-          }
-          if (parts.length > 0) geminiContents.push({ role, parts });
+    // Execute Search if requested
+    if (search) {
+      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+      if (lastUserMsg) {
+        const searchContext = await performTavilySearch(lastUserMsg.content);
+        if (searchContext) {
+          systemPrompt += `\n\n${searchContext}`;
         }
-        geminiContents.unshift({
-          role: "user",
-          parts: [{ text: systemPrompt.content }],
-        });
-
-        const res = await fetchWithRetry(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: geminiContents }),
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return streamWords(text, "gemini-vision", 15);
-        }
-      } catch (e) {
-        console.warn("gemini vision failed:", e);
       }
     }
 
-    // ============ TEXT WATERFALL ============
-    // Order: Mistral → OpenRouter → HuggingFace → Gemini → Groq
+    const fullMessages = [{ role: "system", content: systemPrompt }, ...messages];
 
-    let reply: string | null = null;
-    let provider = "none";
+    // ============================================================
+    // THINK MODE (DeepSeek Reasoner)
+    // ============================================================
+    if (think && process.env.DEEPSEEK_API_KEY) {
+      try {
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "deepseek-reasoner", // The DeepSeek-R1 model
+            messages: fullMessages,
+            stream: true,
+          }),
+        });
 
-    reply = await tryMistral(fullMessages);
-    if (reply) provider = "mistral";
+        if (res.ok && res.body) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              const reader = res.body!.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
 
-    if (!reply) {
-      reply = await tryOpenRouter(fullMessages);
-      if (reply) provider = "openrouter";
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                  if (!line.startsWith("data: ")) continue;
+                  const dataStr = line.slice(6).trim();
+                  if (dataStr === "[DONE]") {
+                    controller.enqueue(encodeDone("deepseek-reasoner"));
+                    controller.close();
+                    return;
+                  }
+                  try {
+                    const parsed = JSON.parse(dataStr);
+                    const delta = parsed.choices?.[0]?.delta;
+                    
+                    // Stream reasoning first, then content
+                    if (delta?.reasoning_content) {
+                      controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
+                    }
+                    if (delta?.content) {
+                      controller.enqueue(encodeToken(delta.content, "content"));
+                    }
+                  } catch (e) {}
+                }
+              }
+              controller.close();
+            },
+          });
+          return streamResponse(stream);
+        }
+      } catch (e) {
+        console.error("DeepSeek Think failed, falling back...", e);
+      }
     }
 
-    if (!reply) {
-      reply = await tryHuggingFace(fullMessages);
-      if (reply) provider = "huggingface";
+    // ============================================================
+    // STANDARD MODE (Groq / Mistral / HF)
+    // ============================================================
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const model = "llama-3.3-70b-versatile";
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: fullMessages,
+            temperature: 0.7,
+            stream: true,
+          }),
+        });
+
+        if (res.ok && res.body) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              const reader = res.body!.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                
+                for (const line of lines) {
+                  if (!line.startsWith("data: ")) continue;
+                  const dataStr = line.slice(6).trim();
+                  if (dataStr === "[DONE]") {
+                    controller.enqueue(encodeDone("groq"));
+                    controller.close();
+                    return;
+                  }
+                  try {
+                    const parsed = JSON.parse(dataStr);
+                    const content = parsed.choices?.[0]?.delta?.content;
+                    if (content) controller.enqueue(encodeToken(content, "content"));
+                  } catch (e) {}
+                }
+              }
+              controller.close();
+            },
+          });
+          return streamResponse(stream);
+        }
+      } catch (e) {
+        console.error("Groq failed...", e);
+      }
     }
 
-    if (!reply) {
-      reply = await tryGemini(messages, systemPrompt.content);
-      if (reply) provider = "gemini";
-    }
-
-    if (!reply) {
-      reply = await tryGroq(fullMessages, !!think);
-      if (reply) provider = "groq";
-    }
-
-    if (!reply) {
-      return Response.json(
-        {
-          error:
-            "All AI providers are temporarily unavailable. Please try again in a moment.",
-        },
-        { status: 503 }
-      );
-    }
-
-    return streamWords(reply, provider, 20);
+    // Fallback
+    return Response.json({ error: "All AI providers failed." }, { status: 503 });
   } catch (error: any) {
-    console.error("Chat route exception:", error);
-    return Response.json(
-      { error: error?.message || "An unexpected error occurred." },
-      { status: 500 }
-    );
+    console.error("Chat route error:", error);
+    return Response.json({ error: "Server error" }, { status: 500 });
   }
 }

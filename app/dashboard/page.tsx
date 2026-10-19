@@ -307,7 +307,7 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // CORE CHAT SENDER
+  // CORE CHAT SENDER (Handles Streaming & Reasoning)
   // ============================================================
   const runChat = async (
     text: string,
@@ -351,7 +351,11 @@ export default function Dashboard() {
       );
     }
 
-    setMessages([...updatedMessages, { role: "assistant", content: "" }]);
+    // Add empty assistant message with optional reasoning field
+    setMessages([
+      ...updatedMessages,
+      { role: "assistant", content: "", reasoning: "" },
+    ]);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -402,17 +406,33 @@ export default function Dashboard() {
           if (!data) continue;
           try {
             const parsed = JSON.parse(data);
+            
+            // Handle Reasoning (DeepSeek)
+            if (parsed.reasoning) {
+              setMessages((prev) => {
+                const next = [...prev];
+                const lastMsg = next[next.length - 1];
+                next[next.length - 1] = {
+                  ...lastMsg,
+                  reasoning: (lastMsg.reasoning || "") + parsed.reasoning,
+                };
+                return next;
+              });
+            }
+
+            // Handle Content
             if (parsed.token) {
               fullReply += parsed.token;
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = {
-                  role: "assistant",
+                  ...next[next.length - 1],
                   content: fullReply,
                 };
                 return next;
               });
             }
+
             if (parsed.done) {
               await supabase.from("messages").insert([
                 { chat_id: chatId, role: "assistant", content: fullReply },
@@ -665,7 +685,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Upgrade */}
+      {/* Upgrade Modal */}
       {showUpgrade && (
         <div className="absolute inset-0 bg-black z-[75] flex flex-col overflow-hidden">
           <div className="flex items-center gap-4 p-4">
@@ -868,7 +888,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* SuperGyra upsell / status */}
+          {/* SuperGyra Status */}
           {isSuperGyra ? (
             <div className="w-full flex items-center gap-3 bg-blue-600/20 border border-blue-500/30 rounded-2xl p-4 mb-6">
               <div className="flex-1">
