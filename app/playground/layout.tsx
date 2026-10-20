@@ -26,5 +26,10 @@ export default function PlaygroundLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <div className="font-sans antialiased selection:bg-blue-500/30">
+      {/* Optional: Add a Google Font import here via next/font if you want JetBrains Mono */}
+      {children}
+    </div>
+  );
 }
