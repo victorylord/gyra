@@ -12,5 +12,5 @@ export default function DocsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return <div className="antialiased selection:bg-blue-500/30">{children}</div>;
 }
