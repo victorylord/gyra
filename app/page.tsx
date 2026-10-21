@@ -82,13 +82,12 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-[#000000] text-[#ededed] selection:bg-blue-500/30 selection:text-blue-200">
+    <main className="min-h-screen bg-[#000000] text-[#ededed] selection:bg-blue-500/30 selection:text-blue-200 overflow-x-hidden">
       
       {/* ============================================================
-          AMBIENT BACKGROUND (Grid + Glow)
+          AMBIENT BACKGROUND (Grid)
           ============================================================ */}
       <div className="fixed inset-0 pointer-events-none flex justify-center overflow-hidden">
-        <div className="absolute top-[-20%] w-[1200px] h-[600px] bg-blue-500/10 blur-[150px] rounded-[100%]" />
         <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
@@ -107,7 +106,20 @@ export default function Home() {
       <nav className="relative z-50 border-b border-white/5 bg-black/50 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <GyraMark size={28} glow={false} animated={false} />
+            {/* Fallback added: if image fails, it shows a sleek 'G' square instead of a broken icon */}
+            <div className="relative flex items-center justify-center w-7 h-7">
+              <img 
+                src="/gyra-logo.png" 
+                alt="Gyra Logo" 
+                className="w-full h-full object-contain absolute inset-0 z-10" 
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <div className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-black font-bold text-xs -z-0">
+                G
+              </div>
+            </div>
             <span className="font-semibold tracking-wide text-sm group-hover:text-white transition-colors">
               Gyra
             </span>
@@ -150,27 +162,30 @@ export default function Home() {
       </nav>
 
       {/* ============================================================
-          HERO SECTION
+          HERO SECTION (Trenchers AI Style)
           ============================================================ */}
       <section className="relative z-10 pt-24 md:pt-32 pb-20 px-6 max-w-6xl mx-auto flex flex-col items-center text-center">
-        <div className={`relative flex items-center justify-center transition-all duration-1000 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
-  {/* The Glowing Circle Container */}
-  <div className="relative w-48 h-48 md:w-56 md:h-56 rounded-full border border-blue-500/30 bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-[0_0_80px_rgba(59,130,246,0.3)] overflow-hidden">
-    
-    {/* Your Custom GyraMark Component */}
-    <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center">
-      <GyraMark size={100} glow={false} animated={true} />
-    </div>
+        
+        {/* ELEGANT BACKGROUND GLOW */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[600px] -z-10 pointer-events-none overflow-hidden">
+          <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-blue-600/30 blur-[120px] rounded-[100%] animate-pulse" style={{ animationDuration: '8s' }} />
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-indigo-500/20 blur-[80px] rounded-full" />
+        </div>
 
-    {/* Fallback Text (Only shows if the mark fails to load) */}
-    <div className="absolute inset-0 flex items-center justify-center -z-10">
-      <span className="text-3xl font-bold text-white/50 tracking-widest">GYRA</span>
-    </div>
-    
-  </div>
-</div>
+        {/* CLEAN GLOWING LOGO CIRCLE */}
+        <div className={`transition-all duration-1000 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
+          <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full border border-white/10 bg-white/[0.02] backdrop-blur-md flex items-center justify-center shadow-[0_0_60px_rgba(59,130,246,0.2)]">
+            {/* Inner subtle glow */}
+            <div className="absolute inset-0 rounded-full bg-gradient-to-b from-blue-500/10 to-transparent" />
+            
+            {/* Center Logo */}
+            <div className="relative z-10 flex items-center justify-center">
+               <GyraMark size={64} glow={false} animated={false} />
+            </div>
+          </div>
+        </div>
 
-        <h1 className="mt-12 text-5xl md:text-7xl font-semibold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60 mb-6 max-w-3xl leading-[1.05]">
+        <h1 className="mt-12 text-5xl md:text-7xl font-semibold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/70 mb-6 max-w-3xl leading-[1.05]">
           One intelligence layer.<br className="hidden md:block" /> Every modality.
         </h1>
         
