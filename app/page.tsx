@@ -153,9 +153,22 @@ export default function Home() {
           HERO SECTION
           ============================================================ */}
       <section className="relative z-10 pt-24 md:pt-32 pb-20 px-6 max-w-6xl mx-auto flex flex-col items-center text-center">
-        <div className={`transition-all duration-1000 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
-          <GyraMark size={200} glow={true} animated={true} />
-        </div>
+        <div className={`relative flex items-center justify-center transition-all duration-1000 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
+  {/* The Glowing Circle Container */}
+  <div className="relative w-48 h-48 md:w-56 md:h-56 rounded-full border border-blue-500/30 bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-[0_0_80px_rgba(59,130,246,0.3)] overflow-hidden">
+    
+    {/* Your Custom GyraMark Component */}
+    <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center">
+      <GyraMark size={100} glow={false} animated={true} />
+    </div>
+
+    {/* Fallback Text (Only shows if the mark fails to load) */}
+    <div className="absolute inset-0 flex items-center justify-center -z-10">
+      <span className="text-3xl font-bold text-white/50 tracking-widest">GYRA</span>
+    </div>
+    
+  </div>
+</div>
 
         <h1 className="mt-12 text-5xl md:text-7xl font-semibold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60 mb-6 max-w-3xl leading-[1.05]">
           One intelligence layer.<br className="hidden md:block" /> Every modality.
