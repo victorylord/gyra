@@ -146,10 +146,12 @@ export default function Dashboard() {
 
   // Attachment
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [recentImages, setRecentImages] = useState<string[]>([]);
   const [attachment, setAttachment] = useState<{
     base64: string;
     type: "image" | "file";
     name: string;
+    status: "checking" | "valid" | "nsfw"; // NEW STATUS
   } | null>(null);
 
   // Broadcast
@@ -269,8 +271,37 @@ export default function Dashboard() {
   // ============================================================
   // ATTACHMENT HANDLERS
   // ============================================================
-  const handleCamera = () => {
+  const processImage = async (base64: string, name: string, type: "image" | "file") => {
+    if (type === "image") {
+      setRecentImages(prev => {
+        const newList = [base64, ...prev.filter(img => img !== base64)];
+        return newList.slice(0, 5);
+      });
+    }
+
+    setAttachment({ base64, type, name, status: "checking" });
     setShowAttachMenu(false);
+
+    if (type === "image") {
+      try {
+        const res = await fetch("/api/moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64 }),
+        });
+        const data = await res.json();
+
+        if (!data.safe) {
+          setAttachment({ base64, type, name, status: "nsfw" });
+          return;
+        }
+      } catch (e) {}
+    }
+    
+    setAttachment({ base64, type, name, status: "valid" });
+  };
+
+  const handleCamera = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -279,41 +310,27 @@ export default function Dashboard() {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        setAttachment({
-          base64: reader.result as string,
-          type: "image",
-          name: file.name,
-        });
-      };
+      reader.onload = () => processImage(reader.result as string, file.name, "image");
       reader.readAsDataURL(file);
     };
     input.click();
   };
 
   const handleGallery = () => {
-    setShowAttachMenu(false);
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*,video/*";
+    input.accept = "image/*";
     input.onchange = (e: any) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        setAttachment({
-          base64: reader.result as string,
-          type: "image",
-          name: file.name,
-        });
-      };
+      reader.onload = () => processImage(reader.result as string, file.name, "image");
       reader.readAsDataURL(file);
     };
     input.click();
   };
 
   const handleFiles = () => {
-    setShowAttachMenu(false);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".pdf,.doc,.docx,.txt,.csv,.json,.md,.xlsx,.pptx";
@@ -321,13 +338,7 @@ export default function Dashboard() {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        setAttachment({
-          base64: reader.result as string,
-          type: "file",
-          name: file.name,
-        });
-      };
+      reader.onload = () => processImage(reader.result as string, file.name, "file");
       reader.readAsDataURL(file);
     };
     input.click();
@@ -342,6 +353,7 @@ export default function Dashboard() {
     fileBase64?: string
   ) => {
     if (!text.trim() && !imageBase64 && !fileBase64) return;
+    if (attachment?.status === "nsfw") return;
 
     let chatId = activeChatId;
     let isNewChat = false;
@@ -522,9 +534,12 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() && !attachment) return;
-    const currentInput = input.trim() || (attachment ? "Analyze this" : "");
+  const sendMessage = async (overrideText?: string) => {
+    const textToSend = overrideText !== undefined ? overrideText : input;
+    if (!textToSend.trim() && !attachment) return;
+    if (attachment?.status === "nsfw") return;
+
+    const currentInput = textToSend.trim() || (attachment ? "Analyze this" : "");
     const imageBase64 =
       attachment && attachment.type === "image" ? attachment.base64 : undefined;
     const fileBase64 =
@@ -1232,6 +1247,7 @@ export default function Dashboard() {
                   {/* USER MESSAGE */}
                   {msg.role === "user" && (
                     <div className="bg-[#2f2f2f] text-white px-5 py-3 rounded-3xl max-w-[85%] text-[15px] leading-relaxed">
+                      {msg.imageBase64 && <img src={msg.imageBase64} className="w-48 h-auto rounded-xl mb-2 object-cover" />}
                       {msg.content}
                     </div>
                   )}
@@ -1298,34 +1314,49 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0">
+        <div className="w-full max-w-3xl mx-auto px-4 pb-4 shrink-0 relative">
+          
+          {/* Suggestions Pills */}
+          {attachment?.status === "valid" && attachment.type === "image" && (
+            <div className="flex gap-2 overflow-x-auto pb-3 custom-scrollbar animate-in fade-in slide-in-from-bottom-2">
+              {["What's This", "Analyze", "Suggest a Solution"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => sendMessage(s)}
+                  className="whitespace-nowrap px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2"
+                >
+                  {s} <span>→</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Selected Image / File Preview */}
           {attachment && (
-            <div className="mb-3 p-3 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-3">
-              {attachment.type === "image" ? (
-                <img
-                  src={attachment.base64}
-                  alt="preview"
-                  className="w-12 h-12 rounded-lg object-cover"
-                />
+            <div className="mb-3 animate-in fade-in slide-in-from-bottom-2">
+              {attachment.status === "checking" ? (
+                <div className="w-24 h-24 rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col items-center justify-center gap-2">
+                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-[10px] text-zinc-500 text-center">Checking...</span>
+                </div>
+              ) : attachment.status === "nsfw" ? (
+                <div className="relative w-24 h-24 rounded-2xl bg-red-950/30 border border-red-500/50 flex flex-col items-center justify-center p-2 text-center">
+                   <button onClick={() => setAttachment(null)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-xs">✕</button>
+                   <svg className="w-6 h-6 text-red-500 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                   <span className="text-[10px] text-red-400 font-medium leading-tight">May violate terms</span>
+                </div>
               ) : (
-                <div className="w-12 h-12 rounded-lg bg-zinc-800 flex items-center justify-center text-2xl">
-                  📎
+                <div className="relative w-24 h-24 rounded-2xl overflow-hidden border border-zinc-700 group">
+                  {attachment.type === "image" ? (
+                    <img src={attachment.base64} alt="preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-2xl">📎</div>
+                  )}
+                  <button onClick={() => setAttachment(null)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-black rounded-full flex items-center justify-center text-white backdrop-blur-sm">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
                 </div>
               )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{attachment.name}</p>
-                <p className="text-xs text-zinc-500">
-                  {attachment.type === "image"
-                    ? "Image attached"
-                    : "File attached"}
-                </p>
-              </div>
-              <button
-                onClick={() => setAttachment(null)}
-                className="text-zinc-500 hover:text-red-400 text-xl"
-              >
-                ✕
-              </button>
             </div>
           )}
 
@@ -1335,10 +1366,12 @@ export default function Dashboard() {
               onGallery={handleGallery}
               onFiles={handleFiles}
               onClose={() => setShowAttachMenu(false)}
+              recentImages={recentImages}
+              onSelectRecent={(base64) => processImage(base64, "recent.jpg", "image")}
             />
           )}
 
-          <div className="w-full bg-[#212121] rounded-[32px] p-3 flex flex-col gap-2">
+          <div className={`w-full bg-[#212121] rounded-[32px] p-3 flex flex-col gap-2 transition-opacity ${attachment?.status === "nsfw" ? "opacity-50 pointer-events-none" : ""}`}>
             <input
               type="text"
               value={input}
@@ -1346,6 +1379,7 @@ export default function Dashboard() {
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               placeholder="Type a message or hold to speak"
               className="bg-transparent outline-none text-[15px] text-white placeholder:text-zinc-500 w-full px-2 py-1"
+              disabled={attachment?.status === "nsfw"}
             />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1380,7 +1414,7 @@ export default function Dashboard() {
                 </button>
                 {input.trim().length > 0 || attachment ? (
                   <button
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     disabled={loading}
                     className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50"
                   >

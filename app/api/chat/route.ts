@@ -89,9 +89,10 @@ CRITICAL INSTRUCTIONS FOR TABLES:
 1. If the user asks for a table, comparison, or calculation, you MUST use standard Markdown table syntax.
 2. Ensure columns are perfectly aligned and data is accurate.
 
-CRITICAL INSTRUCTIONS FOR MEMORY:
+CRITICAL INSTRUCTIONS FOR MEMORY & IMAGES:
 1. Always read the full conversation history. If a user asks to "add a feature" to code you just wrote, you must seamlessly integrate the new feature into the existing code without breaking previous logic.
 2. Never forget the user's tech stack (Next.js, Supabase, Tailwind) from earlier in the conversation.
+3. If a user uploads an image, analyze it carefully (read text, detect errors, understand context) and provide the exact solution based on the image content.
 
 Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
 
@@ -119,6 +120,8 @@ Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
           let res;
           let provider = "";
 
+          // Note: If you are using images, you might need to switch to a vision model.
+          // For now, this defaults to Groq/DeepSeek text models.
           if (think && process.env.DEEPSEEK_API_KEY) {
             controller.enqueue(encodeEvent({ status: "thinking" }));
             res = await fetch("https://api.deepseek.com/chat/completions", {
