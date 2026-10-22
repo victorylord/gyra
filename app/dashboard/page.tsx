@@ -106,7 +106,8 @@ function MessageContent({ content }: { content: string }) {
           }
         }}
       >
-        {content}
+        {/* Remove the [GENERATE_IMAGE: "..."] text from the markdown rendering so it doesn't show up as raw text */}
+        {content.replace(/\[GENERATE_IMAGE:\s*".+?"\]/g, "")}
       </ReactMarkdown>
     </div>
   );
@@ -151,7 +152,7 @@ export default function Dashboard() {
     base64: string;
     type: "image" | "file";
     name: string;
-    status: "checking" | "valid" | "nsfw"; // NEW STATUS
+    status: "checking" | "valid" | "nsfw";
   } | null>(null);
 
   // Broadcast
@@ -389,7 +390,7 @@ export default function Dashboard() {
       fetch("/api/title", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text || "Analyzed an image" }),
       })
       .then(res => res.json())
       .then(data => {
@@ -400,10 +401,10 @@ export default function Dashboard() {
       });
     }
 
-    // Add empty assistant message with optional reasoning field
+    // Add empty assistant message with optional reasoning field and generated image field
     setMessages([
       ...updatedMessages,
-      { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0 },
+      { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null },
     ]);
 
     try {
@@ -494,6 +495,15 @@ export default function Dashboard() {
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1].content = fullReply;
+                return next;
+              });
+            }
+
+            // 🚨 CATCH THE GENERATED IMAGE 🚨
+            if (parsed.generatedImage) {
+              setMessages(prev => {
+                const next = [...prev];
+                next[next.length - 1].generatedImage = parsed.generatedImage;
                 return next;
               });
             }
@@ -1293,6 +1303,27 @@ export default function Dashboard() {
                       <div className="w-full">
                          {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
                       </div>
+
+                      {/* 🚨 GENERATED IMAGE UI 🚨 */}
+                      {msg.generatedImage && (
+                        <div className="mt-4 border border-zinc-800 rounded-2xl overflow-hidden w-full max-w-md animate-in fade-in zoom-in-95 duration-500 shadow-xl">
+                          <div className="bg-[#1e1e1e] px-4 py-3 border-b border-zinc-800 flex items-center gap-2">
+                             <svg className="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                             <span className="text-sm font-medium text-white">Imagine</span>
+                          </div>
+                          <img src={msg.generatedImage} alt="Generated" className="w-full object-cover" />
+                          <div className="bg-[#1e1e1e] p-3 flex items-center justify-between border-t border-zinc-800">
+                            <a href={msg.generatedImage} download="gyra-image.jpg" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                              Download
+                            </a>
+                            <button onClick={() => navigator.share({ url: msg.generatedImage })} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                              Share
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* ACTION BUTTONS (DeepSeek Style) */}
                       {msg.content && !loading && (

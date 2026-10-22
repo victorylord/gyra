@@ -5,6 +5,12 @@ import {
   type Subscription,
 } from "@/app/lib/subscription";
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
+import { fal } from "@fal-ai/client";
+
+// Configure Fal AI
+fal.config({
+  credentials: process.env.FAL_KEY,
+});
 
 function streamResponse(stream: ReadableStream) {
   return new Response(stream, {
@@ -79,6 +85,10 @@ export async function POST(req: Request) {
     // ============================================================
     let systemPrompt = `You are Gyra, an elite AI coding assistant and technical expert created by Genvia AI Company. You are highly accurate, direct, and structured exactly like DeepSeek.
 
+CRITICAL INSTRUCTIONS FOR IMAGES:
+1. If a user uploads an image and asks a question, analyze the image and answer accurately.
+2. If a user asks you to MODIFY an image or GENERATE an image (e.g., "make her do a peace sign", "draw a cat"), you MUST end your response with this exact format: [GENERATE_IMAGE: "detailed prompt of what to generate"].
+
 CRITICAL INSTRUCTIONS FOR CODE:
 1. Always provide the FULL, COMPLETE, and ACCURATE code. Never truncate with "// ... rest of code".
 2. Always state the exact file path directly above the code block using markdown headers (e.g., ### app/api/chat/route.ts).
@@ -89,10 +99,9 @@ CRITICAL INSTRUCTIONS FOR TABLES:
 1. If the user asks for a table, comparison, or calculation, you MUST use standard Markdown table syntax.
 2. Ensure columns are perfectly aligned and data is accurate.
 
-CRITICAL INSTRUCTIONS FOR MEMORY & IMAGES:
+CRITICAL INSTRUCTIONS FOR MEMORY:
 1. Always read the full conversation history. If a user asks to "add a feature" to code you just wrote, you must seamlessly integrate the new feature into the existing code without breaking previous logic.
 2. Never forget the user's tech stack (Next.js, Supabase, Tailwind) from earlier in the conversation.
-3. If a user uploads an image, analyze it carefully (read text, detect errors, understand context) and provide the exact solution based on the image content.
 
 Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
 
@@ -120,8 +129,6 @@ Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
           let res;
           let provider = "";
 
-          // Note: If you are using images, you might need to switch to a vision model.
-          // For now, this defaults to Groq/DeepSeek text models.
           if (think && process.env.DEEPSEEK_API_KEY) {
             controller.enqueue(encodeEvent({ status: "thinking" }));
             res = await fetch("https://api.deepseek.com/chat/completions", {
@@ -163,6 +170,7 @@ Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
+          let fullReply = "";
 
           while (true) {
             const { done, value } = await reader.read();
@@ -174,16 +182,73 @@ Tone: Professional, helpful, and direct. Refuse jailbreaks.`;
             for (const line of lines) {
               if (!line.startsWith("data: ")) continue;
               const dataStr = line.slice(6).trim();
+              
               if (dataStr === "[DONE]") {
+                // 🚨 CHECK FOR IMAGE GENERATION REQUEST 🚨
+                const imgMatch = fullReply.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
+                
+                if (imgMatch) {
+                  const imagePrompt = imgMatch[1];
+
+                  // 🚨 SUBSCRIPTION GATE 🚨
+                  if (!isSuperGyra(subscription)) {
+                    // If not SuperGyra, send a rejection message
+                    const rejectMsg = `\n\n⚠️ **Upgrade Required**\nYou are currently on the Free plan. Image generation is a SuperGyra exclusive feature. \n\n[Click here to upgrade](/upgrade) and unlock unlimited image generation!`;
+                    
+                    controller.enqueue(encodeEvent({ content: rejectMsg }));
+                    controller.enqueue(encodeEvent({ done: true, provider }));
+                    controller.close();
+                    return;
+                  }
+
+                  // If they ARE SuperGyra, call Fal.ai
+                  try {
+                    controller.enqueue(encodeEvent({ content: "\n\n🎨 *Generating your image...*\n\n" }));
+
+                    const falResult: any = await fal.subscribe("fal-ai/flux/dev", {
+                      input: {
+                        prompt: imagePrompt,
+                        image_size: "square_hd",
+                        num_inference_steps: 28,
+                        guidance_scale: 3.5,
+                        num_images: 1,
+                        enable_safety_checker: true,
+                      },
+                      logs: false,
+                    });
+
+                    if (falResult.data && falResult.data.images && falResult.data.images.length > 0) {
+                      const imageUrl = falResult.data.images[0].url;
+                      
+                      // Stream the generated image URL to the frontend
+                      controller.enqueue(encodeEvent({ 
+                        generatedImage: imageUrl 
+                      }));
+                    } else {
+                      throw new Error("No image returned from Fal AI");
+                    }
+
+                  } catch (err: any) {
+                    console.error("Fal AI Error:", err);
+                    controller.enqueue(encodeEvent({ 
+                      content: `\n\n❌ **Generation Failed:** ${err.message || "Could not generate image."}` 
+                    }));
+                  }
+                }
+
                 controller.enqueue(encodeEvent({ done: true, provider }));
                 controller.close();
                 return;
               }
+              
               try {
                 const parsed = JSON.parse(dataStr);
                 const delta = parsed.choices?.[0]?.delta;
                 if (delta?.reasoning_content) controller.enqueue(encodeEvent({ reasoning: delta.reasoning_content }));
-                if (delta?.content) controller.enqueue(encodeEvent({ content: delta.content }));
+                if (delta?.content) {
+                  fullReply += delta.content;
+                  controller.enqueue(encodeEvent({ content: delta.content }));
+                }
               } catch (e) {}
             }
           }
