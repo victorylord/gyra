@@ -8,78 +8,106 @@ import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
 import VoiceMode from "../components/VoiceMode";
 
+// NEW IMPORTS FOR ADVANCED MARKDOWN & SYNTAX HIGHLIGHTING
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+
 // ============================================================
-// MessageContent — renders code blocks with copy buttons
+// MessageContent — Advanced Markdown Renderer (Code, Tables, Formatting)
 // ============================================================
 function MessageContent({ content }: { content: string }) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const copyToClipboard = (text: string, index: number) => {
+  const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const parts: { type: "text" | "code"; content: string; language?: string }[] = [];
-  const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
-
-  let lastIndex = 0;
-  let match;
-
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({
-        type: "text",
-        content: content.substring(lastIndex, match.index),
-      });
-    }
-    parts.push({
-      type: "code",
-      language: match[1] || "code",
-      content: match[2].trim(),
-    });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push({
-      type: "text",
-      content: content.substring(lastIndex),
-    });
-  }
-
   return (
-    <div className="flex flex-col gap-2">
-      {parts.map((part, i) => {
-        if (part.type === "text") {
-          return (
-            <div key={i} className="whitespace-pre-wrap leading-relaxed">
-              {part.content}
-            </div>
-          );
-        }
-        return (
-          <div
-            key={i}
-            className="bg-black border border-zinc-700 rounded-xl overflow-hidden my-2"
-          >
-            <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-700 bg-zinc-950">
-              <span className="text-xs text-zinc-500 font-mono">
-                {part.language}
-              </span>
-              <button
-                onClick={() => copyToClipboard(part.content, i)}
-                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-2.5 py-1 rounded-md border border-zinc-800 transition-colors"
-              >
-                {copiedIndex === i ? "✓ Copied" : "Copy"}
-              </button>
-            </div>
-            <pre className="p-4 text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre">
-              {part.content}
-            </pre>
-          </div>
-        );
-      })}
+    <div className="text-[15px] text-zinc-100 leading-[1.7] w-full overflow-x-auto">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Render Code Blocks with Syntax Highlighting & File Names
+          code({ node, inline, className, children, ...props }: any) {
+            const match = /language-(\w+)/.exec(className || "");
+            const codeString = String(children).replace(/\n$/, "");
+
+            if (!inline && match) {
+              return (
+                <div className="bg-[#1e1e1e] border border-zinc-700 rounded-xl overflow-hidden my-4 shadow-lg">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-700 bg-[#252526]">
+                    <span className="text-xs text-zinc-400 font-mono font-semibold uppercase">{match[1]}</span>
+                    <button
+                      onClick={() => copyToClipboard(codeString)}
+                      className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 rounded-md transition-colors"
+                    >
+                      {copied ? "✓ Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <SyntaxHighlighter
+                    style={vscDarkPlus as any}
+                    language={match[1]}
+                    PreTag="div"
+                    customStyle={{ margin: 0, padding: "1.25rem", background: "transparent" }}
+                    {...props}
+                  >
+                    {codeString}
+                  </SyntaxHighlighter>
+                </div>
+              );
+            }
+            return (
+              <code className="bg-zinc-800 text-zinc-200 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+                {children}
+              </code>
+            );
+          },
+          // Render Tables beautifully
+          table({ children }) {
+            return (
+              <div className="overflow-x-auto my-6 border border-zinc-800 rounded-lg">
+                <table className="w-full text-left text-sm text-zinc-300">
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          thead({ children }) {
+            return <thead className="bg-zinc-900 border-b border-zinc-800 text-white">{children}</thead>;
+          },
+          th({ children }) {
+            return <th className="px-4 py-3 font-semibold">{children}</th>;
+          },
+          td({ children }) {
+            return <td className="px-4 py-3 border-b border-zinc-800/50">{children}</td>;
+          },
+          // Format Headers (File paths)
+          h3({ children }) {
+            return <h3 className="text-lg font-bold text-white mt-6 mb-3 flex items-center gap-2">{children}</h3>;
+          },
+          p({ children }) {
+            return <p className="mb-4">{children}</p>;
+          },
+          ul({ children }) {
+            return <ul className="list-disc pl-6 mb-4 space-y-2">{children}</ul>;
+          },
+          ol({ children }) {
+            return <ol className="list-decimal pl-6 mb-4 space-y-2">{children}</ol>;
+          },
+          li({ children }) {
+            return <li>{children}</li>;
+          },
+          strong({ children }) {
+            return <strong className="font-semibold text-white">{children}</strong>;
+          }
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -104,7 +132,6 @@ export default function Dashboard() {
     isSuperGyra: boolean;
   } | null>(null);
 
-  
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -307,7 +334,7 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // CORE CHAT SENDER (Handles Streaming & Reasoning)
+  // CORE CHAT SENDER
   // ============================================================
   const runChat = async (
     text: string,
@@ -1246,8 +1273,8 @@ export default function Dashboard() {
                          </div>
                       )}
 
-                      {/* ACTUAL TEXT CONTENT */}
-                      <div className="text-[15px] text-zinc-100 leading-[1.7] w-full">
+                      {/* ACTUAL TEXT CONTENT (Markdown Rendered) */}
+                      <div className="w-full">
                          {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
                       </div>
 
