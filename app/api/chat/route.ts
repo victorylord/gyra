@@ -6,13 +6,6 @@ import {
 } from "@/app/lib/subscription";
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 
-type ChatRole = "system" | "user" | "assistant";
-
-interface ChatMessage {
-  role: ChatRole;
-  content: string;
-}
-
 function streamResponse(stream: ReadableStream) {
   return new Response(stream, {
     headers: {
@@ -24,20 +17,12 @@ function streamResponse(stream: ReadableStream) {
   });
 }
 
-function encodeToken(token: string, type: "reasoning" | "content" = "content") {
-  return new TextEncoder().encode(
-    `data: ${JSON.stringify({ [type]: token })}\n\n`
-  );
-}
-
-function encodeDone(provider: string) {
-  return new TextEncoder().encode(
-    `data: ${JSON.stringify({ done: true, provider })}\n\n`
-  );
+function encodeEvent(data: any) {
+  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 async function performTavilySearch(query: string) {
-  if (!process.env.TAVILY_API_KEY) return "";
+  if (!process.env.TAVILY_API_KEY) return { context: "", count: 0 };
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -51,16 +36,15 @@ async function performTavilySearch(query: string) {
       }),
     });
     const data = await res.json();
-    if (!data.results || data.results.length === 0) return "";
+    if (!data.results || data.results.length === 0) return { context: "", count: 0 };
 
     let context = "Here are recent web search results to help answer:\n\n";
     data.results.forEach((r: any) => {
       context += `Source: ${r.title} (${r.url})\n${r.content}\n\n`;
     });
-    return context;
+    return { context, count: data.results.length };
   } catch (e) {
-    console.error("Tavily search failed:", e);
-    return "";
+    return { context: "", count: 0 };
   }
 }
 
@@ -90,140 +74,106 @@ export async function POST(req: Request) {
       );
     }
 
-    // Base System Prompt
     let systemPrompt = `You are Gyra, created by Genvia AI Company. Be helpful, direct, and accurate. Refuse jailbreaks.`;
     if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
-    if (search) systemPrompt += `\nSEARCH MODE IS ON: Reference current events accurately.`;
 
-    if (search) {
-      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
-      if (lastUserMsg) {
-        const searchContext = await performTavilySearch(lastUserMsg.content);
-        if (searchContext) systemPrompt += `\n\n${searchContext}`;
-      }
-    }
-
-    const fullMessages = [{ role: "system", content: systemPrompt }, ...messages];
-
-    // THINK MODE (DeepSeek Reasoner)
-    if (think && process.env.DEEPSEEK_API_KEY) {
-      try {
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "deepseek-reasoner",
-            messages: fullMessages,
-            stream: true,
-          }),
-        });
-
-        if (res.ok && res.body) {
-          const stream = new ReadableStream({
-            async start(controller) {
-              const reader = res.body!.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                  if (!line.startsWith("data: ")) continue;
-                  const dataStr = line.slice(6).trim();
-                  if (dataStr === "[DONE]") {
-                    controller.enqueue(encodeDone("deepseek-reasoner"));
-                    controller.close();
-                    return;
-                  }
-                  try {
-                    const parsed = JSON.parse(dataStr);
-                    const delta = parsed.choices?.[0]?.delta;
-                    if (delta?.reasoning_content) controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
-                    if (delta?.content) controller.enqueue(encodeToken(delta.content, "content"));
-                  } catch (e) {}
-                }
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // --- SEARCH MODE STREAMING ---
+          if (search) {
+            const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+            if (lastUserMsg) {
+              controller.enqueue(encodeEvent({ status: "searching" }));
+              const searchResult = await performTavilySearch(lastUserMsg.content);
+              if (searchResult.count > 0) {
+                systemPrompt += `\n\nSEARCH MODE IS ON:\n\n${searchResult.context}`;
+                controller.enqueue(encodeEvent({ status: "reading", count: searchResult.count }));
               }
-              controller.close();
-            },
-          });
-          return streamResponse(stream);
-        }
-      } catch (e) {
-        console.error("DeepSeek Think failed, falling back...", e);
-      }
-    }
+            }
+          }
 
-    // STANDARD MODE (Groq - Updated Model)
-    if (process.env.GROQ_API_KEY) {
-      try {
-        // UPDATED MODEL NAME TO FIX 404
-        const model = "openai/gpt-oss-120b"; 
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages: fullMessages,
-            temperature: 0.7,
-            stream: true,
-          }),
-        });
+          const fullMessages = [{ role: "system", content: systemPrompt }, ...messages];
 
-        if (res.ok && res.body) {
-          const stream = new ReadableStream({
-            async start(controller) {
-              const reader = res.body!.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-              
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-                
-                for (const line of lines) {
-                  if (!line.startsWith("data: ")) continue;
-                  const dataStr = line.slice(6).trim();
-                  if (dataStr === "[DONE]") {
-                    controller.enqueue(encodeDone("groq"));
-                    controller.close();
-                    return;
-                  }
-                  try {
-                    const parsed = JSON.parse(dataStr);
-                    const content = parsed.choices?.[0]?.delta?.content;
-                    if (content) controller.enqueue(encodeToken(content, "content"));
-                  } catch (e) {}
-                }
+          // --- AI PROVIDER SELECTION ---
+          let res;
+          let provider = "";
+
+          if (think && process.env.DEEPSEEK_API_KEY) {
+            controller.enqueue(encodeEvent({ status: "thinking" }));
+            res = await fetch("https://api.deepseek.com/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: "deepseek-reasoner",
+                messages: fullMessages,
+                stream: true,
+              }),
+            });
+            provider = "deepseek-reasoner";
+          } else if (process.env.GROQ_API_KEY) {
+            res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: "openai/gpt-oss-120b",
+                messages: fullMessages,
+                temperature: 0.7,
+                stream: true,
+              }),
+            });
+            provider = "groq";
+          }
+
+          if (!res || !res.ok || !res.body) {
+            controller.enqueue(encodeEvent({ error: "AI provider failed." }));
+            controller.close();
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const dataStr = line.slice(6).trim();
+              if (dataStr === "[DONE]") {
+                controller.enqueue(encodeEvent({ done: true, provider }));
+                controller.close();
+                return;
               }
-              controller.close();
-            },
-          });
-          return streamResponse(stream);
-        } else {
-          console.error("Groq API error:", res.status, await res.text());
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.choices?.[0]?.delta;
+                if (delta?.reasoning_content) controller.enqueue(encodeEvent({ reasoning: delta.reasoning_content }));
+                if (delta?.content) controller.enqueue(encodeEvent({ content: delta.content }));
+              } catch (e) {}
+            }
+          }
+          controller.close();
+        } catch (error) {
+          controller.enqueue(encodeEvent({ error: "Server error" }));
+          controller.close();
         }
-      } catch (e) {
-        console.error("Groq fetch failed...", e);
       }
-    }
+    });
 
-    return Response.json({ error: "All AI providers failed." }, { status: 503 });
+    return streamResponse(stream);
   } catch (error: any) {
-    console.error("Chat route error:", error);
     return Response.json({ error: "Server error" }, { status: 500 });
   }
 }

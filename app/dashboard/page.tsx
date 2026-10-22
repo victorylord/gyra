@@ -317,6 +317,8 @@ export default function Dashboard() {
     if (!text.trim() && !imageBase64 && !fileBase64) return;
 
     let chatId = activeChatId;
+    let isNewChat = false;
+
     if (!chatId) {
       if (!user) return;
       const { data } = await supabase
@@ -328,6 +330,7 @@ export default function Dashboard() {
       setChats([data, ...chats]);
       setActiveChatId(data.id);
       chatId = data.id;
+      isNewChat = true;
     }
 
     const userMessage: any = { role: "user", content: text.trim() };
@@ -342,19 +345,26 @@ export default function Dashboard() {
       .from("messages")
       .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
-    if (messagesRef.current.length === 0) {
-      const newTitle =
-        text.substring(0, 25) + (text.length > 25 ? "..." : "");
-      await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
-      setChats(
-        chats.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
-      );
+    // Smart Title Generation for New Chats
+    if (isNewChat) {
+      fetch("/api/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.title) {
+          supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
+          setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
+        }
+      });
     }
 
     // Add empty assistant message with optional reasoning field
     setMessages([
       ...updatedMessages,
-      { role: "assistant", content: "", reasoning: "" },
+      { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0 },
     ]);
 
     try {
@@ -392,6 +402,8 @@ export default function Dashboard() {
       const decoder = new TextDecoder();
       let buffer = "";
       let fullReply = "";
+      let startTime = Date.now();
+      let hasContentStarted = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -407,28 +419,42 @@ export default function Dashboard() {
           try {
             const parsed = JSON.parse(data);
             
-            // Handle Reasoning (DeepSeek)
-            if (parsed.reasoning) {
-              setMessages((prev) => {
+            // Update Statuses
+            if (parsed.status === "searching" || parsed.status === "thinking") {
+              setMessages(prev => {
                 const next = [...prev];
-                const lastMsg = next[next.length - 1];
-                next[next.length - 1] = {
-                  ...lastMsg,
-                  reasoning: (lastMsg.reasoning || "") + parsed.reasoning,
-                };
+                next[next.length - 1].searchStatus = parsed.status;
+                return next;
+              });
+            }
+            if (parsed.status === "reading") {
+              setMessages(prev => {
+                const next = [...prev];
+                next[next.length - 1].searchStatus = "done";
+                next[next.length - 1].searchCount = parsed.count;
                 return next;
               });
             }
 
-            // Handle Content (FIXED: Changed parsed.token to parsed.content)
+            // Handle Reasoning (DeepSeek)
+            if (parsed.reasoning) {
+              if (!hasContentStarted) {
+                setMessages((prev) => {
+                  const next = [...prev];
+                  next[next.length - 1].reasoningTime = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+                  next[next.length - 1].reasoning = (next[next.length - 1].reasoning || "") + parsed.reasoning;
+                  return next;
+                });
+              }
+            }
+
+            // Handle Content
             if (parsed.content) {
+              hasContentStarted = true;
               fullReply += parsed.content;
               setMessages((prev) => {
                 const next = [...prev];
-                next[next.length - 1] = {
-                  ...next[next.length - 1],
-                  content: fullReply,
-                };
+                next[next.length - 1].content = fullReply;
                 return next;
               });
             }
@@ -505,6 +531,21 @@ export default function Dashboard() {
         }
       }, 60_000);
     });
+
+  const readAloud = (text: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const regenerateResponse = async () => {
+    const lastUserMsg = [...messagesRef.current].reverse().find((m: any) => m.role === "user");
+    if (!lastUserMsg) return;
+    setMessages(prev => prev.slice(0, -1));
+    await runChat(lastUserMsg.content);
+  };
 
   // ============================================================
   // CHAT ACTIONS
@@ -1107,7 +1148,7 @@ export default function Dashboard() {
               </svg>
             </button>
             <div className="hidden md:block ml-2">
-              <h1 className="text-lg font-bold">Gyra</h1>
+              <h1 className="text-lg font-bold truncate max-w-[200px]">{chats.find(c => c.id === activeChatId)?.title || "Gyra"}</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1155,27 +1196,74 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="w-full flex flex-col gap-4 pb-4">
+            <div className="w-full flex flex-col gap-6 pb-4">
               {messages.map((msg, i) => (
                 <div
                   key={i}
-                  className={`p-4 rounded-xl max-w-[85%] leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-blue-600 self-end text-white"
-                      : "bg-zinc-800 self-start text-zinc-200"
-                  }`}
+                  className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
                 >
-                  {msg.role === "assistant" ? (
-                    <MessageContent content={msg.content} />
-                  ) : (
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {/* USER MESSAGE */}
+                  {msg.role === "user" && (
+                    <div className="bg-[#2f2f2f] text-white px-5 py-3 rounded-3xl max-w-[85%] text-[15px] leading-relaxed">
+                      {msg.content}
+                    </div>
                   )}
-                  {loading &&
-                    i === messages.length - 1 &&
-                    msg.role === "assistant" &&
-                    !msg.content && (
-                      <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse"></span>
-                    )}
+
+                  {/* ASSISTANT MESSAGE */}
+                  {msg.role === "assistant" && (
+                    <div className="w-full max-w-[95%] flex flex-col items-start">
+                      
+                      {/* THINKING & SEARCHING WIDGET */}
+                      {(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0) && (
+                         <div className="mb-3 w-full">
+                           {msg.searchStatus && (
+                             <div className="flex items-center gap-2 text-sm text-zinc-400 mb-3">
+                               {msg.searchStatus === "searching" && <span className="animate-pulse flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Browsing the web...</span>}
+                               {msg.searchStatus === "reading" && <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Reading {msg.searchCount} pages...</span>}
+                               {msg.searchStatus === "done" && msg.searchCount > 0 && (
+                                 <div className="flex items-center gap-2 bg-[#212121] border border-zinc-800 px-3 py-1.5 rounded-xl mt-2 cursor-pointer hover:bg-zinc-800 transition-colors">
+                                   <div className="flex -space-x-1">
+                                     <div className="w-4 h-4 bg-blue-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">F</div>
+                                     <div className="w-4 h-4 bg-purple-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">W</div>
+                                   </div>
+                                   <span className="text-[12px] font-medium text-zinc-300">{msg.searchCount} web pages</span>
+                                 </div>
+                               )}
+                             </div>
+                           )}
+                           
+                           {(msg.reasoning || msg.reasoningTime > 0) && (
+                             <details className="group w-full">
+                               <summary className="flex items-center gap-1.5 text-[14px] text-zinc-400 cursor-pointer hover:text-zinc-200 select-none w-fit">
+                                 <span>Thought for {msg.reasoningTime || 1} seconds</span>
+                                 <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                               </summary>
+                               <div className="mt-2 pl-4 border-l-2 border-zinc-800 text-[14px] text-zinc-500 whitespace-pre-wrap leading-relaxed py-1">
+                                 {msg.reasoning || "Thinking..."}
+                               </div>
+                             </details>
+                           )}
+                         </div>
+                      )}
+
+                      {/* ACTUAL TEXT CONTENT */}
+                      <div className="text-[15px] text-zinc-100 leading-[1.7] w-full">
+                         {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
+                      </div>
+
+                      {/* ACTION BUTTONS (DeepSeek Style) */}
+                      {msg.content && !loading && (
+                        <div className="flex items-center gap-1 mt-3 text-zinc-400">
+                          <button onClick={() => navigator.clipboard.writeText(msg.content)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Copy"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
+                          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Good response"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.514" /></svg></button>
+                          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Bad response"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.514" /></svg></button>
+                          <button onClick={() => readAloud(msg.content)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Read aloud"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg></button>
+                          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Share"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg></button>
+                          <button onClick={regenerateResponse} className="ml-auto p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Regenerate"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               <div ref={messagesEndRef} />
@@ -1223,71 +1311,39 @@ export default function Dashboard() {
             />
           )}
 
-          <div className="flex gap-2 mb-3 flex-wrap">
-            <button
-              onClick={() => setThinkMode(!thinkMode)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
-                thinkMode
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "bg-transparent border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
-              }`}
-            >
-              🧠 Think
-            </button>
-            <button
-              onClick={() => setSearchMode(!searchMode)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
-                searchMode
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "bg-transparent border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
-              }`}
-            >
-              🌐 Search
-            </button>
-            <VoiceToggleButton
-              enabled={voiceEnabled}
-              onToggle={() => setVoiceEnabled(!voiceEnabled)}
-            />
-          </div>
-
-          <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-3 flex flex-col gap-2">
+          <div className="w-full bg-[#212121] rounded-[32px] p-3 flex flex-col gap-2">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              placeholder="Ask anything"
-              className="bg-transparent outline-none text-base text-white placeholder:text-zinc-500 w-full px-2"
+              placeholder="Type a message or hold to speak"
+              className="bg-transparent outline-none text-[15px] text-white placeholder:text-zinc-500 w-full px-2 py-1"
             />
             <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setThinkMode(!thinkMode)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${thinkMode ? "bg-blue-600/20 text-blue-400" : "text-zinc-400 hover:bg-zinc-800"}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                  Think
+                </button>
+                <button
+                  onClick={() => setSearchMode(!searchMode)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${searchMode ? "bg-blue-600/20 text-blue-400" : "text-zinc-400 hover:bg-zinc-800"}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                  Search
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowAttachMenu(!showAttachMenu)}
                   className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
                 >
-                  <svg
-                    className="w-4 h-4 text-zinc-300"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d={
-                        showAttachMenu
-                          ? "M6 18L18 6M6 6l12 12"
-                          : "M12 4v16m8-8H4"
-                      }
-                    />
-                  </svg>
+                  <svg className="w-4 h-4 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={showAttachMenu ? "M6 18L18 6M6 6l12 12" : "M12 4v16m8-8H4"} /></svg>
                 </button>
-                <button className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded-full text-xs text-zinc-300 transition-colors">
-                  ⚡ Fast
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowVoiceMode(true)}
                   className="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
@@ -1301,19 +1357,7 @@ export default function Dashboard() {
                     disabled={loading}
                     className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50"
                   >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="white"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M5 12h14M12 5l7 7-7 7"
-                      />
-                    </svg>
+                    <svg className="w-5 h-5" fill="none" stroke="white" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7" /></svg>
                   </button>
                 ) : (
                   <button
