@@ -21,8 +21,9 @@ function streamResponse(stream: ReadableStream) {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no", // Prevents Vercel from buffering the stream
     },
   });
 }
@@ -120,69 +121,74 @@ export async function POST(req: Request) {
     // ============================================================
     // THINK MODE (DeepSeek Reasoner)
     // ============================================================
-    if (think && process.env.DEEPSEEK_API_KEY) {
-      try {
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "deepseek-reasoner", // The DeepSeek-R1 model
-            messages: fullMessages,
-            stream: true,
-          }),
-        });
-
-        if (res.ok && res.body) {
-          const stream = new ReadableStream({
-            async start(controller) {
-              const reader = res.body!.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                  if (!line.startsWith("data: ")) continue;
-                  const dataStr = line.slice(6).trim();
-                  if (dataStr === "[DONE]") {
-                    controller.enqueue(encodeDone("deepseek-reasoner"));
-                    controller.close();
-                    return;
-                  }
-                  try {
-                    const parsed = JSON.parse(dataStr);
-                    const delta = parsed.choices?.[0]?.delta;
-                    
-                    // Stream reasoning first, then content
-                    if (delta?.reasoning_content) {
-                      controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
-                    }
-                    if (delta?.content) {
-                      controller.enqueue(encodeToken(delta.content, "content"));
-                    }
-                  } catch (e) {}
-                }
-              }
-              controller.close();
+    if (think) {
+      if (!process.env.DEEPSEEK_API_KEY) {
+        console.warn("⚠️ Think mode requested, but DEEPSEEK_API_KEY is missing in Vercel. Falling back to Groq.");
+      } else {
+        try {
+          const res = await fetch("https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
             },
+            body: JSON.stringify({
+              model: "deepseek-reasoner",
+              messages: fullMessages,
+              stream: true,
+            }),
           });
-          return streamResponse(stream);
+
+          if (res.ok && res.body) {
+            const stream = new ReadableStream({
+              async start(controller) {
+                const reader = res.body!.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+
+                  for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const dataStr = line.slice(6).trim();
+                    if (dataStr === "[DONE]") {
+                      controller.enqueue(encodeDone("deepseek-reasoner"));
+                      controller.close();
+                      return;
+                    }
+                    try {
+                      const parsed = JSON.parse(dataStr);
+                      const delta = parsed.choices?.[0]?.delta;
+                      
+                      if (delta?.reasoning_content) {
+                        controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
+                      }
+                      if (delta?.content) {
+                        controller.enqueue(encodeToken(delta.content, "content"));
+                      }
+                    } catch (e) {}
+                  }
+                }
+                controller.close();
+              },
+            });
+            return streamResponse(stream);
+          } else {
+             console.error("DeepSeek API returned an error status:", res.status, await res.text());
+          }
+        } catch (e) {
+          console.error("DeepSeek fetch failed:", e);
         }
-      } catch (e) {
-        console.error("DeepSeek Think failed, falling back...", e);
       }
     }
 
     // ============================================================
-    // STANDARD MODE (Groq / Mistral / HF)
+    // STANDARD MODE (Groq)
     // ============================================================
     if (process.env.GROQ_API_KEY) {
       try {
@@ -207,7 +213,7 @@ export async function POST(req: Request) {
               const reader = res.body!.getReader();
               const decoder = new TextDecoder();
               let buffer = "";
-
+              
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -234,16 +240,18 @@ export async function POST(req: Request) {
             },
           });
           return streamResponse(stream);
+        } else {
+          console.error("Groq API returned an error status:", res.status, await res.text());
         }
       } catch (e) {
-        console.error("Groq failed...", e);
+        console.error("Groq fetch failed:", e);
       }
     }
 
-    // Fallback
-    return Response.json({ error: "All AI providers failed." }, { status: 503 });
+    // Fallback if everything fails
+    return Response.json({ error: "All AI providers failed. Check your Vercel environment variables." }, { status: 503 });
   } catch (error: any) {
-    console.error("Chat route error:", error);
-    return Response.json({ error: "Server error" }, { status: 500 });
+    console.error("Chat Crashed:", error);
+    return Response.json({ error: error.message || "Server error" }, { status: 500 });
   }
 }
