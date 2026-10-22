@@ -104,7 +104,7 @@ export default function Dashboard() {
     isSuperGyra: boolean;
   } | null>(null);
 
-  // Chat
+  
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -420,9 +420,9 @@ export default function Dashboard() {
               });
             }
 
-            // Handle Content
-            if (parsed.token) {
-              fullReply += parsed.token;
+            // Handle Content (FIXED: Changed parsed.token to parsed.content)
+            if (parsed.content) {
+              fullReply += parsed.content;
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = {

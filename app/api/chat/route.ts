@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import {
   getUserFromToken,
   getSubscription,
@@ -7,9 +6,6 @@ import {
 } from "@/app/lib/subscription";
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 
-// ============================================================
-// Types & Helpers
-// ============================================================
 type ChatRole = "system" | "user" | "assistant";
 
 interface ChatMessage {
@@ -23,7 +19,7 @@ function streamResponse(stream: ReadableStream) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no", // Prevents Vercel from buffering the stream
+      "X-Accel-Buffering": "no", 
     },
   });
 }
@@ -40,9 +36,6 @@ function encodeDone(provider: string) {
   );
 }
 
-// ============================================================
-// Tavily Search
-// ============================================================
 async function performTavilySearch(query: string) {
   if (!process.env.TAVILY_API_KEY) return "";
   try {
@@ -71,9 +64,6 @@ async function performTavilySearch(query: string) {
   }
 }
 
-// ============================================================
-// Main Route
-// ============================================================
 export async function POST(req: Request) {
   try {
     const { messages, think, search } = await req.json();
@@ -105,94 +95,77 @@ export async function POST(req: Request) {
     if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
     if (search) systemPrompt += `\nSEARCH MODE IS ON: Reference current events accurately.`;
 
-    // Execute Search if requested
     if (search) {
       const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
       if (lastUserMsg) {
         const searchContext = await performTavilySearch(lastUserMsg.content);
-        if (searchContext) {
-          systemPrompt += `\n\n${searchContext}`;
-        }
+        if (searchContext) systemPrompt += `\n\n${searchContext}`;
       }
     }
 
     const fullMessages = [{ role: "system", content: systemPrompt }, ...messages];
 
-    // ============================================================
     // THINK MODE (DeepSeek Reasoner)
-    // ============================================================
-    if (think) {
-      if (!process.env.DEEPSEEK_API_KEY) {
-        console.warn("⚠️ Think mode requested, but DEEPSEEK_API_KEY is missing in Vercel. Falling back to Groq.");
-      } else {
-        try {
-          const res = await fetch("https://api.deepseek.com/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: "deepseek-reasoner",
-              messages: fullMessages,
-              stream: true,
-            }),
-          });
+    if (think && process.env.DEEPSEEK_API_KEY) {
+      try {
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "deepseek-reasoner",
+            messages: fullMessages,
+            stream: true,
+          }),
+        });
 
-          if (res.ok && res.body) {
-            const stream = new ReadableStream({
-              async start(controller) {
-                const reader = res.body!.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
+        if (res.ok && res.body) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              const reader = res.body!.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
 
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buffer += decoder.decode(value, { stream: true });
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop() || "";
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
 
-                  for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const dataStr = line.slice(6).trim();
-                    if (dataStr === "[DONE]") {
-                      controller.enqueue(encodeDone("deepseek-reasoner"));
-                      controller.close();
-                      return;
-                    }
-                    try {
-                      const parsed = JSON.parse(dataStr);
-                      const delta = parsed.choices?.[0]?.delta;
-                      
-                      if (delta?.reasoning_content) {
-                        controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
-                      }
-                      if (delta?.content) {
-                        controller.enqueue(encodeToken(delta.content, "content"));
-                      }
-                    } catch (e) {}
+                for (const line of lines) {
+                  if (!line.startsWith("data: ")) continue;
+                  const dataStr = line.slice(6).trim();
+                  if (dataStr === "[DONE]") {
+                    controller.enqueue(encodeDone("deepseek-reasoner"));
+                    controller.close();
+                    return;
                   }
+                  try {
+                    const parsed = JSON.parse(dataStr);
+                    const delta = parsed.choices?.[0]?.delta;
+                    if (delta?.reasoning_content) controller.enqueue(encodeToken(delta.reasoning_content, "reasoning"));
+                    if (delta?.content) controller.enqueue(encodeToken(delta.content, "content"));
+                  } catch (e) {}
                 }
-                controller.close();
-              },
-            });
-            return streamResponse(stream);
-          } else {
-             console.error("DeepSeek API returned an error status:", res.status, await res.text());
-          }
-        } catch (e) {
-          console.error("DeepSeek fetch failed:", e);
+              }
+              controller.close();
+            },
+          });
+          return streamResponse(stream);
         }
+      } catch (e) {
+        console.error("DeepSeek Think failed, falling back...", e);
       }
     }
 
-    // ============================================================
-    // STANDARD MODE (Groq)
-    // ============================================================
+    // STANDARD MODE (Groq - Updated Model)
     if (process.env.GROQ_API_KEY) {
       try {
-        const model = "openai/gpt-oss-120b";
+        // UPDATED MODEL NAME TO FIX 404
+        const model = "openai/gpt-oss-120b"; 
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -241,17 +214,16 @@ export async function POST(req: Request) {
           });
           return streamResponse(stream);
         } else {
-          console.error("Groq API returned an error status:", res.status, await res.text());
+          console.error("Groq API error:", res.status, await res.text());
         }
       } catch (e) {
-        console.error("Groq fetch failed:", e);
+        console.error("Groq fetch failed...", e);
       }
     }
 
-    // Fallback if everything fails
-    return Response.json({ error: "All AI providers failed. Check your Vercel environment variables." }, { status: 503 });
+    return Response.json({ error: "All AI providers failed." }, { status: 503 });
   } catch (error: any) {
-    console.error("Chat Crashed:", error);
-    return Response.json({ error: error.message || "Server error" }, { status: 500 });
+    console.error("Chat route error:", error);
+    return Response.json({ error: "Server error" }, { status: 500 });
   }
 }
