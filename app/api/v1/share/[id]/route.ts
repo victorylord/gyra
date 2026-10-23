@@ -11,16 +11,19 @@ function getSupabaseAdmin() {
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const shareId = params.id;
+    // Next.js 15 requires awaiting params
+    const { id: shareId } = await params; 
+    
     if (!shareId) {
       return Response.json({ error: "Share ID required" }, { status: 400 });
     }
 
     const supabaseAdmin = getSupabaseAdmin();
 
+    // 1. Fetch the share record and the associated chat
     const { data: share, error: shareErr } = await supabaseAdmin
       .from("shared_chats")
       .select(`
@@ -42,11 +45,13 @@ export async function GET(
       return Response.json({ error: "This link has been revoked" }, { status: 403 });
     }
 
+    // Safely extract the chat data
     const chat: any = Array.isArray(share.chats) ? share.chats[0] : share.chats;
     if (!chat) {
       return Response.json({ error: "Chat data missing" }, { status: 404 });
     }
 
+    // 2. Fetch all messages for this chat
     const { data: messages, error: msgErr } = await supabaseAdmin
       .from("messages")
       .select("role, content, created_at")
@@ -57,14 +62,16 @@ export async function GET(
       throw msgErr;
     }
 
+    // 3. Return the formatted data
     return Response.json({
       title: chat.title || "Shared Conversation",
       messages: messages || [],
     });
+
   } catch (err: any) {
     console.error("Share fetch error:", err);
     return Response.json(
-      { error: { code: "internal_error", message: err?.message } },
+      { error: { code: "internal_error", message: err?.message || "Unknown error" } },
       { status: 500 }
     );
   }
