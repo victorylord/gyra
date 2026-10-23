@@ -1314,7 +1314,6 @@ export default function Dashboard() {
                           <img src={msg.generatedImage} alt="Generated" className="w-full object-cover" />
                           <div className="bg-[#1e1e1e] p-3 flex items-center justify-between border-t border-zinc-800">
                             <button onClick={() => {
-                                // Force download to gallery
                                 fetch(msg.generatedImage)
                                   .then(res => res.blob())
                                   .then(blob => {
@@ -1354,7 +1353,6 @@ export default function Dashboard() {
                           <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Bad response"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.514" /></svg></button>
                           <button onClick={() => readAloud(msg.content)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Read aloud"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg></button>
                           
-                          {/* 🚨 UPDATED SHARE BUTTON 🚨 */}
                           <button 
                             onClick={async () => {
                               try {
@@ -1516,7 +1514,11 @@ export default function Dashboard() {
                 </button>
                 {input.trim().length > 0 || attachment ? (
                   <button
-                    onClick={() => sendMessage()}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      sendMessage();
+                    }}
                     disabled={loading}
                     className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-500 transition-colors disabled:opacity-50"
                   >
