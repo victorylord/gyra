@@ -1313,11 +1313,32 @@ export default function Dashboard() {
                           </div>
                           <img src={msg.generatedImage} alt="Generated" className="w-full object-cover" />
                           <div className="bg-[#1e1e1e] p-3 flex items-center justify-between border-t border-zinc-800">
-                            <a href={msg.generatedImage} download="gyra-image.jpg" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                            <button onClick={() => {
+                                // Force download to gallery
+                                fetch(msg.generatedImage)
+                                  .then(res => res.blob())
+                                  .then(blob => {
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `gyra-${Date.now()}.jpg`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+                                    window.URL.revokeObjectURL(url);
+                                  })
+                                  .catch(err => alert("Download failed. Try long-pressing the image to save."));
+                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                               Download
-                            </a>
-                            <button onClick={() => navigator.share({ url: msg.generatedImage })} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                            </button>
+                            <button onClick={() => {
+                                if (navigator.share) {
+                                    navigator.share({ url: msg.generatedImage });
+                                } else {
+                                    alert("Sharing is not supported on this browser.");
+                                }
+                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
                               Share
                             </button>
@@ -1332,7 +1353,57 @@ export default function Dashboard() {
                           <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Good response"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.514" /></svg></button>
                           <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Bad response"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.514" /></svg></button>
                           <button onClick={() => readAloud(msg.content)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Read aloud"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg></button>
-                          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Share"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg></button>
+                          
+                          {/* 🚨 UPDATED SHARE BUTTON 🚨 */}
+                          <button 
+                            onClick={async () => {
+                              try {
+                                if (!activeChatId) {
+                                  alert("No active chat to share.");
+                                  return;
+                                }
+                                
+                                const { data: sessionData } = await supabase.auth.getSession();
+                                const token = sessionData.session?.access_token;
+                                if (!token) return;
+
+                                const res = await fetch("/api/v1/share", {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ chatId: activeChatId }),
+                                });
+                                
+                                const data = await res.json();
+                                if (data.id) {
+                                  const shareUrl = `${window.location.origin}/share/${data.id}`;
+                                  
+                                  if (navigator.share) {
+                                    await navigator.share({
+                                      title: "Gyra AI Shared Chat",
+                                      text: "Check out this AI conversation on Gyra",
+                                      url: shareUrl,
+                                    });
+                                  } else {
+                                    await navigator.clipboard.writeText(shareUrl);
+                                    alert("Link copied to clipboard!");
+                                  }
+                                } else {
+                                  alert(data.error?.message || "Failed to generate share link.");
+                                }
+                              } catch (err) {
+                                console.error("Share error:", err);
+                                alert("Failed to generate share link.");
+                              }
+                            }} 
+                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" 
+                            title="Share"
+                          >
+                            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                          </button>
+                          
                           <button onClick={regenerateResponse} className="ml-auto p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Regenerate"><svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                         </div>
                       )}

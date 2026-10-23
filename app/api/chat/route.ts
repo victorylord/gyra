@@ -61,7 +61,6 @@ export async function POST(req: Request) {
       return Response.json({ error: "`messages` must be an array." }, { status: 400 });
     }
 
-    // Auth & Limits
     let subscription: Subscription = { plan: "free", status: "inactive", expiresAt: null, creditsUsd: 0 };
     const userToken = req.headers.get("x-gyra-user-token") || "";
     if (userToken) {
@@ -79,22 +78,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // ============================================================
-    // SYSTEM PROMPT
-    // ============================================================
     let systemPrompt = `You are Gyra, an elite AI assistant created by Genvia AI Company. 
 
 CRITICAL INSTRUCTIONS FOR IMAGES:
 1. If a user uploads an image and asks a question, analyze the image and answer accurately.
-2. If a user asks you to MODIFY an image or GENERATE an image (e.g., "make her do a peace sign", "draw a cat"), you MUST end your response with this exact format: [GENERATE_IMAGE: "detailed prompt of what to generate"]. Make sure the prompt is highly detailed and describes the visual contents accurately based on the user's uploaded image and request.
+2. If a user asks you to MODIFY an image (e.g., "make her do a peace sign", "draw a cat"), you MUST end your response with this exact format: [GENERATE_IMAGE: "detailed prompt of what to generate based on the image"].
 
 CRITICAL INSTRUCTIONS FOR CODE:
 1. Always provide the FULL, COMPLETE, and ACCURATE code. 
 2. Always state the exact file path directly above the code block (e.g., ### app/api/chat/route.ts).
-3. Explain the process before giving code.
-
-CRITICAL INSTRUCTIONS FOR TABLES:
-1. Use standard Markdown table syntax.
 
 Tone: Professional, helpful, and direct.`;
 
@@ -103,7 +95,6 @@ Tone: Professional, helpful, and direct.`;
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // --- SEARCH MODE STREAMING ---
           if (search) {
             const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
             if (lastUserMsg) {
@@ -116,8 +107,16 @@ Tone: Professional, helpful, and direct.`;
             }
           }
 
-          // 🚨 PROPERLY FORMAT MESSAGES FOR GROQ VISION 🚨
           const hasImage = messages.some((m: any) => m.imageBase64);
+          
+          let latestImageBase64 = "";
+          for (let i = messages.length - 1; i >= 0; i--) {
+             if (messages[i].imageBase64) {
+                 latestImageBase64 = messages[i].imageBase64;
+                 break;
+             }
+          }
+
           const formattedMessages = messages.map((m: any) => {
             if (m.imageBase64) {
               return {
@@ -133,7 +132,6 @@ Tone: Professional, helpful, and direct.`;
 
           const fullMessages = [{ role: "system", content: systemPrompt }, ...formattedMessages];
 
-          // --- AI PROVIDER SELECTION ---
           let res;
           let provider = "";
 
@@ -153,7 +151,6 @@ Tone: Professional, helpful, and direct.`;
             });
             provider = "deepseek-reasoner";
           } else if (process.env.GROQ_API_KEY) {
-            // Use Vision model if image is present, otherwise standard model
             const model = hasImage ? "llama-3.2-90b-vision-preview" : "openai/gpt-oss-120b";
             
             res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -195,13 +192,11 @@ Tone: Professional, helpful, and direct.`;
               const dataStr = line.slice(6).trim();
               
               if (dataStr === "[DONE]") {
-                // 🚨 CHECK FOR IMAGE GENERATION REQUEST 🚨
                 const imgMatch = fullReply.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
                 
                 if (imgMatch) {
                   const imagePrompt = imgMatch[1];
 
-                  // SUBSCRIPTION GATE
                   if (!isSuperGyra(subscription)) {
                     const rejectMsg = `\n\n⚠️ **Upgrade Required**\nYou are currently on the Free plan. Image generation is a SuperGyra exclusive feature. \n\n[Click here to upgrade](/upgrade) and unlock unlimited image generation!`;
                     controller.enqueue(encodeEvent({ content: rejectMsg }));
@@ -213,15 +208,24 @@ Tone: Professional, helpful, and direct.`;
                   try {
                     controller.enqueue(encodeEvent({ content: "\n\n🎨 *Generating your image...*\n\n" }));
 
-                    const falResult: any = await fal.subscribe("fal-ai/flux/dev", {
-                      input: {
-                        prompt: imagePrompt,
-                        image_size: "square_hd",
-                        num_inference_steps: 28,
-                        guidance_scale: 3.5,
-                        num_images: 1,
-                        enable_safety_checker: true,
-                      },
+                    const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
+                    
+                    const inputData: any = {
+                      prompt: imagePrompt,
+                      num_inference_steps: 28,
+                      guidance_scale: 3.5,
+                      num_images: 1,
+                      enable_safety_checker: true,
+                    };
+
+                    if (latestImageBase64) {
+                      inputData.image_url = latestImageBase64;
+                    } else {
+                      inputData.image_size = "square_hd";
+                    }
+
+                    const falResult: any = await fal.subscribe(falModel, {
+                      input: inputData,
                       logs: false,
                     });
 

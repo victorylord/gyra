@@ -11,7 +11,6 @@ function getSupabaseAdmin() {
 }
 
 function makeId(len = 10) {
-  // URL-safe short id
   return randomBytes(len).toString("base64url").slice(0, len);
 }
 
@@ -37,7 +36,6 @@ export async function POST(req: Request) {
 
     const supabaseAdmin = getSupabaseAdmin();
 
-    // Verify the caller owns the chat
     const {
       data: { user },
       error: userErr,
@@ -68,7 +66,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Reuse existing share if still active
     const { data: existing } = await supabaseAdmin
       .from("shared_chats")
       .select("id")
