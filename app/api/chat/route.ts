@@ -6,19 +6,25 @@ import {
 } from "@/app/lib/subscription";
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 import { fal } from "@fal-ai/client";
-import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, tool } from "ai";
-import { z } from "zod";
 
 fal.config({
   credentials: process.env.FAL_KEY,
 });
 
-// Configure Groq (baseURL MUST be capitalized)
-const groq = createOpenAI({
-  baseURL: "https://api.groq.com/openai/v1",
-  apiKey: process.env.GROQ_API_KEY,
-});
+function streamResponse(stream: ReadableStream) {
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no", 
+    },
+  });
+}
+
+function encodeEvent(data: any) {
+  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
+}
 
 async function performTavilySearch(query: string) {
   if (!process.env.TAVILY_API_KEY) return { context: "", count: 0 };
@@ -81,7 +87,7 @@ CRITICAL INSTRUCTIONS FOR IMAGES:
 CRITICAL INSTRUCTIONS FOR CODE:
 1. Always provide the FULL, COMPLETE, and ACCURATE code. 
 2. Always state the exact file path directly above the code block (e.g., ### app/api/chat/route.ts).
-3. If you need to see a file to fix a bug, use the 'read_file' tool. DO NOT guess the code, ask for the file.`;
+3. If a user asks you to read a file, output a special command exactly like this: [READ_FILE: "path/to/file.ts"]`;
 
     if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
 
@@ -96,7 +102,6 @@ CRITICAL INSTRUCTIONS FOR CODE:
     }
 
     const hasImage = messages.some((m: any) => m.imageBase64);
-    
     let latestImageBase64 = "";
     for (let i = messages.length - 1; i >= 0; i--) {
        if (messages[i].imageBase64) {
@@ -118,59 +123,102 @@ CRITICAL INSTRUCTIONS FOR CODE:
       return { role: m.role, content: m.content };
     });
 
-    // Define Tools
-    const tools = {
-      read_file: tool({
-        description: "Read the contents of a specific file in the user's project.",
-        parameters: z.object({
-          filePath: z.string().describe("The exact path to the file"),
-        }),
+    const fullMessages = [{ role: "system", content: systemPrompt }, ...formattedMessages];
+    const model = hasImage ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
+
+    // 🚨 RAW FETCH TO GROQ (Bypasses Vercel SDK bugs) 🚨
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: fullMessages,
+        temperature: 0.7,
+        stream: true,
       }),
-    };
+    });
 
-    // Use Vercel AI SDK for streaming
-    const modelName = hasImage ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
-    
-    const result = await streamText({
-      model: groq(modelName),
-      system: systemPrompt,
-      messages: formattedMessages as any,
-      tools,
-      maxSteps: 5,
-      onFinish: async ({ text }) => {
-        // 🚨 INTERCEPT IMAGE GENERATION 🚨
-        const imgMatch = text.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
-        if (imgMatch) {
-          const imagePrompt = imgMatch[1];
-          if (!isSuperGyra(subscription)) return;
+    if (!res || !res.ok || !res.body) {
+      const errorText = await res.text();
+      console.error("Groq Error:", errorText);
+      return Response.json({ error: "Groq API failed" }, { status: 500 });
+    }
 
-          try {
-            const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
-            const inputData: any = {
-              prompt: imagePrompt,
-              num_inference_steps: 28,
-              guidance_scale: 3.5,
-              num_images: 1,
-              enable_safety_checker: true,
-            };
-            if (latestImageBase64) inputData.image_url = latestImageBase64;
-            else inputData.image_size = "square_hd";
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = res.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let fullReply = "";
 
-            await fal.subscribe(falModel, {
-              input: inputData,
-              logs: false,
-            });
-          } catch (err) {
-            console.error("Fal AI Error:", err);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const dataStr = line.slice(6).trim();
+              
+              if (dataStr === "[DONE]") {
+                // 🚨 CHECK FOR IMAGE GENERATION 🚨
+                const imgMatch = fullReply.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
+                if (imgMatch) {
+                  const imagePrompt = imgMatch[1];
+                  if (isSuperGyra(subscription)) {
+                    try {
+                      controller.enqueue(encodeEvent({ content: "\n\n🎨 *Generating your image...*\n\n" }));
+                      const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
+                      const inputData: any = { prompt: imagePrompt, num_inference_steps: 28, guidance_scale: 3.5, num_images: 1 };
+                      if (latestImageBase64) inputData.image_url = latestImageBase64;
+                      else inputData.image_size = "square_hd";
+
+                      const falResult: any = await fal.subscribe(falModel, { input: inputData, logs: false });
+                      if (falResult.data?.images?.length > 0) {
+                        controller.enqueue(encodeEvent({ generatedImage: falResult.data.images[0].url }));
+                      }
+                    } catch (err) {
+                      console.error(err);
+                      controller.enqueue(encodeEvent({ content: "\n\n❌ Image generation failed." }));
+                    }
+                  } else {
+                    controller.enqueue(encodeEvent({ content: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra exclusive feature. \n\n[Upgrade here](/upgrade)` }));
+                  }
+                }
+
+                controller.enqueue(encodeEvent({ done: true }));
+                controller.close();
+                return;
+              }
+              
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.choices?.[0]?.delta;
+                if (delta?.content) {
+                  fullReply += delta.content;
+                  controller.enqueue(encodeEvent({ content: delta.content }));
+                }
+              } catch (e) {}
+            }
           }
+          controller.close();
+        } catch (error) {
+          controller.enqueue(encodeEvent({ error: "Stream error" }));
+          controller.close();
         }
       }
     });
 
-    return result.toDataStreamResponse();
+    return streamResponse(stream);
 
   } catch (error: any) {
-    console.error("Chat API Error:", error);
-    return Response.json({ error: error.message || "Internal Server Error" }, { status: 500 });
+    console.error("API Error:", error);
+    return Response.json({ error: "Server error" }, { status: 500 });
   }
 }

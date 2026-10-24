@@ -368,18 +368,11 @@ export default function Dashboard() {
   setMessages(updatedMessages);
   setLoading(true);
 
-  await supabase
-    .from("messages")
-    .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
+  await supabase.from("messages").insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
   if (isNewChat) {
-    fetch("/api/title", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text || "Analyzed an image" }),
-    })
-    .then(res => res.json())
-    .then(data => {
+    fetch("/api/title", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text || "Analyzed an image" }) })
+    .then(res => res.json()).then(data => {
       if (data.title) {
         supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
         setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
@@ -387,10 +380,7 @@ export default function Dashboard() {
     });
   }
 
-  setMessages([
-    ...updatedMessages,
-    { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null },
-  ]);
+  setMessages([...updatedMessages, { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null }]);
 
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -398,36 +388,21 @@ export default function Dashboard() {
 
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { "x-gyra-user-token": token } : {}),
-      },
+      headers: { "Content-Type": "application/json", ...(token ? { "x-gyra-user-token": token } : {}) },
       body: JSON.stringify({
-        messages: updatedMessages.map((m: any) => ({
-          role: m.role,
-          content: m.content,
-          imageBase64: m.imageBase64,
-          fileBase64: m.fileBase64,
-        })),
+        messages: updatedMessages.map((m: any) => ({ role: m.role, content: m.content, imageBase64: m.imageBase64, fileBase64: m.fileBase64 })),
         think: thinkMode,
         search: searchMode,
       }),
     });
 
-    if (res.status === 402) {
-      setLoading(false);
-      setMessages((prev) => prev.slice(0, -1));
-      setShowLimitModal(true);
-      return;
-    }
-
+    if (res.status === 402) { setLoading(false); setMessages((prev) => prev.slice(0, -1)); setShowLimitModal(true); return; }
     if (!res.body) throw new Error("No response body");
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullReply = "";
 
-    // 🚨 ROBUST VERCEL AI SDK STREAM PARSER 🚨
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -438,45 +413,42 @@ export default function Dashboard() {
       for (const line of lines) {
         if (!line.trim()) continue;
         
-        // Vercel AI SDK streams text starting with `0:`
-        if (line.startsWith("0:")) {
+        // 🚨 STANDARD SSE PARSER 🚨
+        if (line.startsWith("data:")) {
+          const dataStr = line.slice(5).trim();
+          if (dataStr === "[DONE]") continue;
+
           try {
-            // Extract the text, sometimes it comes as JSON string, sometimes just text
-            const textChunk = JSON.parse(line.slice(2)); 
-            fullReply += textChunk;
-            setMessages((prev) => {
-              const next = [...prev];
-              next[next.length - 1].content = fullReply;
-              return next;
-            });
-          } catch (e) {
-             // Ignore parse errors for partial chunks
-          }
-        } 
-        // If it's a tool call (starts with `9:`), we just log it for now
-        else if (line.startsWith("9:")) {
-          try {
-            const toolCall = JSON.parse(line.slice(2));
-            console.log("Gyra Agent Tool Call:", toolCall);
-          } catch(e) {}
+            const parsed = JSON.parse(dataStr);
+            
+            if (parsed.content) {
+              fullReply += parsed.content;
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].content = fullReply;
+                return next;
+              });
+            }
+            
+            if (parsed.generatedImage) {
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].generatedImage = parsed.generatedImage;
+                return next;
+              });
+            }
+          } catch (e) {}
         }
       }
     }
 
     if (fullReply) {
-      await supabase.from("messages").insert([
-        { chat_id: chatId, role: "assistant", content: fullReply },
-      ]);
+      await supabase.from("messages").insert([{ chat_id: chatId, role: "assistant", content: fullReply }]);
     }
 
   } catch (err) {
     console.error(err);
-    const fallback = "Sorry, I ran into an error. Please try again.";
-    setMessages((prev) => {
-      const next = [...prev];
-      next[next.length - 1] = { role: "assistant", content: fallback };
-      return next;
-    });
+    setMessages((prev) => { const next = [...prev]; next[next.length - 1] = { role: "assistant", content: "Sorry, an error occurred." }; return next; });
   }
   setLoading(false);
 };
