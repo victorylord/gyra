@@ -336,144 +336,150 @@ export default function Dashboard() {
   // CORE CHAT SENDER (Vercel AI SDK Format)
   // ============================================================
   const runChat = async (
-    text: string,
-    imageBase64?: string,
-    fileBase64?: string
-  ) => {
-    if (!text.trim() && !imageBase64 && !fileBase64) return;
-    if (attachment?.status === "nsfw") return;
+  text: string,
+  imageBase64?: string,
+  fileBase64?: string
+) => {
+  if (!text.trim() && !imageBase64 && !fileBase64) return;
+  if (attachment?.status === "nsfw") return;
 
-    let chatId = activeChatId;
-    let isNewChat = false;
+  let chatId = activeChatId;
+  let isNewChat = false;
 
-    if (!chatId) {
-      if (!user) return;
-      const { data } = await supabase
-        .from("chats")
-        .insert([{ user_id: user.id, title: "New Conversation" }])
-        .select()
-        .single();
-      if (!data) return;
-      setChats([data, ...chats]);
-      setActiveChatId(data.id);
-      chatId = data.id;
-      isNewChat = true;
-    }
+  if (!chatId) {
+    if (!user) return;
+    const { data } = await supabase
+      .from("chats")
+      .insert([{ user_id: user.id, title: "New Conversation" }])
+      .select()
+      .single();
+    if (!data) return;
+    setChats([data, ...chats]);
+    setActiveChatId(data.id);
+    chatId = data.id;
+    isNewChat = true;
+  }
 
-    const userMessage: any = { role: "user", content: text.trim() };
-    if (imageBase64) userMessage.imageBase64 = imageBase64;
-    if (fileBase64) userMessage.fileBase64 = fileBase64;
+  const userMessage: any = { role: "user", content: text.trim() };
+  if (imageBase64) userMessage.imageBase64 = imageBase64;
+  if (fileBase64) userMessage.fileBase64 = fileBase64;
 
-    const updatedMessages = [...messagesRef.current, userMessage];
-    setMessages(updatedMessages);
-    setLoading(true);
+  const updatedMessages = [...messagesRef.current, userMessage];
+  setMessages(updatedMessages);
+  setLoading(true);
 
-    await supabase
-      .from("messages")
-      .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
+  await supabase
+    .from("messages")
+    .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
-    if (isNewChat) {
-      fetch("/api/title", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text || "Analyzed an image" }),
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.title) {
-          supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
-          setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
-        }
-      });
-    }
-
-    setMessages([
-      ...updatedMessages,
-      { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null },
-    ]);
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { "x-gyra-user-token": token } : {}),
-        },
-        body: JSON.stringify({
-          messages: updatedMessages.map((m: any) => ({
-            role: m.role,
-            content: m.content,
-            imageBase64: m.imageBase64,
-            fileBase64: m.fileBase64,
-          })),
-          think: thinkMode,
-        }),
-      });
-
-      if (res.status === 402) {
-        setLoading(false);
-        setMessages((prev) => prev.slice(0, -1));
-        setShowLimitModal(true);
-        return;
+  if (isNewChat) {
+    fetch("/api/title", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text || "Analyzed an image" }),
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.title) {
+        supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
       }
+    });
+  }
 
-      if (!res.body) throw new Error("No response body");
+  setMessages([
+    ...updatedMessages,
+    { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null },
+  ]);
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullReply = "";
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
 
-      // 🚨 READ THE VERCEL AI SDK STREAM FORMAT 🚨
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "x-gyra-user-token": token } : {}),
+      },
+      body: JSON.stringify({
+        messages: updatedMessages.map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          imageBase64: m.imageBase64,
+          fileBase64: m.fileBase64,
+        })),
+        think: thinkMode,
+        search: searchMode,
+      }),
+    });
+
+    if (res.status === 402) {
+      setLoading(false);
+      setMessages((prev) => prev.slice(0, -1));
+      setShowLimitModal(true);
+      return;
+    }
+
+    if (!res.body) throw new Error("No response body");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullReply = "";
+
+    // 🚨 ROBUST VERCEL AI SDK STREAM PARSER 🚨
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
         
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          
-          if (line.startsWith("0:")) {
-            // Text chunk
-            const textChunk = JSON.parse(line.slice(2));
+        // Vercel AI SDK streams text starting with `0:`
+        if (line.startsWith("0:")) {
+          try {
+            // Extract the text, sometimes it comes as JSON string, sometimes just text
+            const textChunk = JSON.parse(line.slice(2)); 
             fullReply += textChunk;
-            
             setMessages((prev) => {
               const next = [...prev];
               next[next.length - 1].content = fullReply;
               return next;
             });
-          } else if (line.startsWith("9:")) {
-            // Tool call detected
-            const toolCall = JSON.parse(line.slice(2));
-            if (toolCall.toolName === "read_file") {
-              console.log("Gyra wants to read:", toolCall.args.filePath);
-            }
+          } catch (e) {
+             // Ignore parse errors for partial chunks
           }
+        } 
+        // If it's a tool call (starts with `9:`), we just log it for now
+        else if (line.startsWith("9:")) {
+          try {
+            const toolCall = JSON.parse(line.slice(2));
+            console.log("Gyra Agent Tool Call:", toolCall);
+          } catch(e) {}
         }
       }
-
-      if (fullReply) {
-        await supabase.from("messages").insert([
-          { chat_id: chatId, role: "assistant", content: fullReply },
-        ]);
-      }
-
-    } catch (err) {
-      console.error(err);
-      const fallback = "Sorry, I ran into an error. Please try again.";
-      setMessages((prev) => {
-        const next = [...prev];
-        next[next.length - 1] = { role: "assistant", content: fallback };
-        return next;
-      });
     }
-    setLoading(false);
-  };
+
+    if (fullReply) {
+      await supabase.from("messages").insert([
+        { chat_id: chatId, role: "assistant", content: fullReply },
+      ]);
+    }
+
+  } catch (err) {
+    console.error(err);
+    const fallback = "Sorry, I ran into an error. Please try again.";
+    setMessages((prev) => {
+      const next = [...prev];
+      next[next.length - 1] = { role: "assistant", content: fallback };
+      return next;
+    });
+  }
+  setLoading(false);
+};
 
   const sendMessage = async (overrideText?: string) => {
     const textToSend = overrideText !== undefined ? overrideText : input;
