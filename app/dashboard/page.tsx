@@ -8,14 +8,13 @@ import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
 import VoiceMode from "../components/VoiceMode";
 
-// NEW IMPORTS FOR ADVANCED MARKDOWN & SYNTAX HIGHLIGHTING
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 // ============================================================
-// MessageContent — Advanced Markdown Renderer (Code, Tables, Formatting)
+// MessageContent — Advanced Markdown Renderer
 // ============================================================
 function MessageContent({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
@@ -31,7 +30,6 @@ function MessageContent({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // Render Code Blocks with Syntax Highlighting & File Names
           code({ node, inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || "");
             const codeString = String(children).replace(/\n$/, "");
@@ -66,7 +64,6 @@ function MessageContent({ content }: { content: string }) {
               </code>
             );
           },
-          // Render Tables beautifully
           table({ children }) {
             return (
               <div className="overflow-x-auto my-6 border border-zinc-800 rounded-lg">
@@ -85,7 +82,6 @@ function MessageContent({ content }: { content: string }) {
           td({ children }) {
             return <td className="px-4 py-3 border-b border-zinc-800/50">{children}</td>;
           },
-          // Format Headers (File paths)
           h3({ children }) {
             return <h3 className="text-lg font-bold text-white mt-6 mb-3 flex items-center gap-2">{children}</h3>;
           },
@@ -106,7 +102,6 @@ function MessageContent({ content }: { content: string }) {
           }
         }}
       >
-        {/* Remove the [GENERATE_IMAGE: "..."] text from the markdown rendering so it doesn't show up as raw text */}
         {content.replace(/\[GENERATE_IMAGE:\s*".+?"\]/g, "")}
       </ReactMarkdown>
     </div>
@@ -125,7 +120,6 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Subscription
   const [subscription, setSubscription] = useState<{
     plan: string;
     status: string;
@@ -140,12 +134,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
 
-  // Modes
   const [thinkMode, setThinkMode] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
 
-  // Attachment
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [recentImages, setRecentImages] = useState<string[]>([]);
   const [attachment, setAttachment] = useState<{
@@ -155,10 +147,7 @@ export default function Dashboard() {
     status: "checking" | "valid" | "nsfw";
   } | null>(null);
 
-  // Broadcast
   const [activeBroadcast, setActiveBroadcast] = useState<any>(null);
-
-  // Voice mode
   const [showVoiceMode, setShowVoiceMode] = useState(false);
   const voiceReplyResolverRef = useRef<((reply: string | null) => void) | null>(
     null
@@ -181,7 +170,6 @@ export default function Dashboard() {
       setUser(user);
 
       if (user) {
-        // Load subscription
         try {
           const { data: sessionData } = await supabase.auth.getSession();
           const token = sessionData.session?.access_token;
@@ -196,7 +184,6 @@ export default function Dashboard() {
           }
         } catch {}
 
-        // Load chats
         const { data: chatsData } = await supabase
           .from("chats")
           .select("*")
@@ -346,7 +333,7 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // CORE CHAT SENDER
+  // CORE CHAT SENDER (Vercel AI SDK Format)
   // ============================================================
   const runChat = async (
     text: string,
@@ -385,7 +372,6 @@ export default function Dashboard() {
       .from("messages")
       .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
-    // Smart Title Generation for New Chats
     if (isNewChat) {
       fetch("/api/title", {
         method: "POST",
@@ -401,7 +387,6 @@ export default function Dashboard() {
       });
     }
 
-    // Add empty assistant message with optional reasoning field and generated image field
     setMessages([
       ...updatedMessages,
       { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null },
@@ -425,7 +410,6 @@ export default function Dashboard() {
             fileBase64: m.fileBase64,
           })),
           think: thinkMode,
-          search: searchMode,
         }),
       });
 
@@ -440,106 +424,53 @@ export default function Dashboard() {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
       let fullReply = "";
-      let startTime = Date.now();
-      let hasContentStarted = false;
 
+      // 🚨 READ THE VERCEL AI SDK STREAM FORMAT 🚨
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const data = trimmed.slice(5).trim();
-          if (!data) continue;
-          try {
-            const parsed = JSON.parse(data);
+          if (!line.trim()) continue;
+          
+          if (line.startsWith("0:")) {
+            // Text chunk
+            const textChunk = JSON.parse(line.slice(2));
+            fullReply += textChunk;
             
-            // Update Statuses
-            if (parsed.status === "searching" || parsed.status === "thinking") {
-              setMessages(prev => {
-                const next = [...prev];
-                next[next.length - 1].searchStatus = parsed.status;
-                return next;
-              });
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1].content = fullReply;
+              return next;
+            });
+          } else if (line.startsWith("9:")) {
+            // Tool call detected
+            const toolCall = JSON.parse(line.slice(2));
+            if (toolCall.toolName === "read_file") {
+              console.log("Gyra wants to read:", toolCall.args.filePath);
             }
-            if (parsed.status === "reading") {
-              setMessages(prev => {
-                const next = [...prev];
-                next[next.length - 1].searchStatus = "done";
-                next[next.length - 1].searchCount = parsed.count;
-                return next;
-              });
-            }
-
-            // Handle Reasoning (DeepSeek)
-            if (parsed.reasoning) {
-              if (!hasContentStarted) {
-                setMessages((prev) => {
-                  const next = [...prev];
-                  next[next.length - 1].reasoningTime = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
-                  next[next.length - 1].reasoning = (next[next.length - 1].reasoning || "") + parsed.reasoning;
-                  return next;
-                });
-              }
-            }
-
-            // Handle Content
-            if (parsed.content) {
-              hasContentStarted = true;
-              fullReply += parsed.content;
-              setMessages((prev) => {
-                const next = [...prev];
-                next[next.length - 1].content = fullReply;
-                return next;
-              });
-            }
-
-            // 🚨 CATCH THE GENERATED IMAGE 🚨
-            if (parsed.generatedImage) {
-              setMessages(prev => {
-                const next = [...prev];
-                next[next.length - 1].generatedImage = parsed.generatedImage;
-                return next;
-              });
-            }
-
-            if (parsed.done) {
-              await supabase.from("messages").insert([
-                { chat_id: chatId, role: "assistant", content: fullReply },
-              ]);
-              if (voiceReplyResolverRef.current) {
-                voiceReplyResolverRef.current(fullReply);
-                voiceReplyResolverRef.current = null;
-              }
-            }
-          } catch (e) {}
+          }
         }
       }
 
-      if (voiceReplyResolverRef.current) {
-        voiceReplyResolverRef.current(fullReply || null);
-        voiceReplyResolverRef.current = null;
+      if (fullReply) {
+        await supabase.from("messages").insert([
+          { chat_id: chatId, role: "assistant", content: fullReply },
+        ]);
       }
+
     } catch (err) {
       console.error(err);
       const fallback = "Sorry, I ran into an error. Please try again.";
       setMessages((prev) => {
         const next = [...prev];
-        next[next.length - 1] = {
-          role: "assistant",
-          content: fallback,
-        };
+        next[next.length - 1] = { role: "assistant", content: fallback };
         return next;
       });
-      if (voiceReplyResolverRef.current) {
-        voiceReplyResolverRef.current(fallback);
-        voiceReplyResolverRef.current = null;
-      }
     }
     setLoading(false);
   };
