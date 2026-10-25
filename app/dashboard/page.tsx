@@ -402,42 +402,37 @@ export default function Dashboard() {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullReply = "";
+    let buffer = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
       for (const line of lines) {
         if (!line.trim()) continue;
         
-        // 🚨 STANDARD SSE PARSER 🚨
-        if (line.startsWith("data:")) {
-          const dataStr = line.slice(5).trim();
-          if (dataStr === "[DONE]") continue;
-
+        if (line.startsWith("0:")) {
           try {
-            const parsed = JSON.parse(dataStr);
-            
-            if (parsed.content) {
-              fullReply += parsed.content;
-              setMessages((prev) => {
-                const next = [...prev];
-                next[next.length - 1].content = fullReply;
-                return next;
-              });
-            }
-            
-            if (parsed.generatedImage) {
-              setMessages((prev) => {
-                const next = [...prev];
-                next[next.length - 1].generatedImage = parsed.generatedImage;
-                return next;
-              });
-            }
-          } catch (e) {}
+            const textChunk = JSON.parse(line.slice(2));
+            fullReply += textChunk;
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1].content = fullReply;
+              return next;
+            });
+          } catch (e) {
+            // 🚨 IGNORE BROKEN CHUNKS 🚨
+          }
+        } 
+        else if (line.startsWith("9:")) {
+          try {
+            const toolCall = JSON.parse(line.slice(2));
+            console.log("Gyra Agent Tool Call:", toolCall);
+          } catch(e) {}
         }
       }
     }
