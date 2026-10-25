@@ -415,24 +415,39 @@ export default function Dashboard() {
       for (const line of lines) {
         if (!line.trim()) continue;
         
-        if (line.startsWith("0:")) {
+        // Log every line so you can see it in the browser console
+        console.log("Receiving line:", line);
+
+        if (line.startsWith("data:")) {
+          const dataStr = line.slice(5).trim();
+          
+          // Skip the [DONE] message
+          if (dataStr === "[DONE]") continue;
+
           try {
-            const textChunk = JSON.parse(line.slice(2));
-            fullReply += textChunk;
-            setMessages((prev) => {
-              const next = [...prev];
-              next[next.length - 1].content = fullReply;
-              return next;
-            });
+            const parsed = JSON.parse(dataStr);
+            
+            // Handle normal text chunks
+            if (parsed.content) {
+              fullReply += parsed.content;
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].content = fullReply;
+                return next;
+              });
+            }
+
+            // Handle generated images
+            if (parsed.generatedImage) {
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].generatedImage = parsed.generatedImage;
+                return next;
+              });
+            }
           } catch (e) {
-            // 🚨 IGNORE BROKEN CHUNKS 🚨
+            console.error("Failed to parse chunk:", dataStr);
           }
-        } 
-        else if (line.startsWith("9:")) {
-          try {
-            const toolCall = JSON.parse(line.slice(2));
-            console.log("Gyra Agent Tool Call:", toolCall);
-          } catch(e) {}
         }
       }
     }
