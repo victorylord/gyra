@@ -124,7 +124,7 @@ CRITICAL INSTRUCTIONS FOR CODE:
     });
 
     const fullMessages = [{ role: "system", content: systemPrompt }, ...formattedMessages];
-    const model = hasImage ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
+    const model = hasImage ? "llama-3.2-90b-vision-preview" : "openai/gpt-oss-120b";
 
     // 🚨 RAW FETCH TO GROQ 🚨
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
