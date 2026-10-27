@@ -1164,7 +1164,7 @@ export default function Dashboard() {
       </div>
     </div>
     <p className="text-zinc-500 text-sm">
-      Ask anything to get started.
+      Gyra is Here to Help, Ask Anything.
     </p>
   </div>
 ) : (

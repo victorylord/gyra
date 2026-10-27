@@ -146,15 +146,15 @@ export default function Home() {
               </Link>
             ) : (
               <>
-                <button onClick={handleLogin} className="text-sm text-zinc-400 hover:text-white transition-colors hidden sm:block">
-                  Sign in
-                </button>
-                <button
-                  onClick={handleLogin}
-                  className="bg-white text-black px-4 py-1.5 rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
-                >
-                  Start Building
-                </button>
+                <Link href="/login" className="text-sm text-zinc-400 hover:text-white transition-colors hidden sm:block">
+  Sign in
+</Link>
+<Link
+  href="/login"
+  className="bg-white text-black px-4 py-1.5 rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
+>
+  Start Building
+</Link>
               </>
             )}
           </div>
