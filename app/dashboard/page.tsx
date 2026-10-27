@@ -6,6 +6,7 @@ import { supabase } from "../supabase";
 import SettingsPanel from "../components/SettingsPanel";
 import VoiceOutput, { VoiceToggleButton } from "../components/VoiceOutput";
 import AttachmentMenu from "../components/AttachmentMenu";
+import GyraMark from "../components/GyraMark";
 import VoiceMode from "../components/VoiceMode";
 
 import ReactMarkdown from "react-markdown";
@@ -1154,19 +1155,19 @@ export default function Dashboard() {
 
         <div className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto px-4 py-4">
           {messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-32 h-32 mx-auto rounded-full border border-zinc-800 flex items-center justify-center mb-6 opacity-40">
-                  <span className="text-6xl font-bold tracking-tighter text-white">
-                    G
-                  </span>
-                </div>
-                <p className="text-zinc-500 text-sm">
-                  Ask anything to get started.
-                </p>
-              </div>
-            </div>
-          ) : (
+  <div className="h-full flex flex-col items-center justify-center pb-20">
+    {/* The Logo Wrapper */}
+    <div className="relative mb-6">
+      <div className="w-32 h-32 md:w-40 md:h-40 flex items-center justify-center opacity-30 grayscale">
+        {/* Ensure GyraMark is the image component */}
+        <GyraMark size={120} glow={false} animated={false} />
+      </div>
+    </div>
+    <p className="text-zinc-500 text-sm">
+      Ask anything to get started.
+    </p>
+  </div>
+) : (
             <div className="w-full flex flex-col gap-6 pb-4">
               {messages.map((msg, i) => (
                 <div
