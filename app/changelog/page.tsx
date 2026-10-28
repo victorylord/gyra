@@ -6,8 +6,8 @@ import Logo from "../Logo";
 // ============================================================
 type Bullet = {
   text: string;
-  bold?: string[]; // phrases to render bold
-  codeRefs?: string[]; // inline monospace chips
+  bold?: string[]; 
+  codeRefs?: string[]; 
   links?: { text: string; href: string }[];
 };
 
@@ -20,6 +20,7 @@ type Entry = {
   version: string;
   date: string;
   highlight?: string;
+  isLatest?: boolean;
   groups: Group[];
 };
 
@@ -35,6 +36,61 @@ const CHANGELOG: YearBlock[] = [
   {
     year: "2026",
     entries: [
+      {
+        version: "Gyra 1.3",
+        date: "October 28, 2026",
+        highlight: "The Omni-Intelligence Update",
+        isLatest: true,
+        groups: [
+          {
+            title: "The 6-Agent Orchestrator",
+            bullets: [
+              {
+                text: "Introduced the Gyra Agent Orchestrator — a multi-agent pipeline that breaks down complex coding tasks into distinct steps.",
+                bold: ["Gyra Agent Orchestrator"],
+              },
+              {
+                text: "Added Orion (Intent Analysis), Architect (Design), Forge (Coding), Sentinel (Security), and Mentor (Education).",
+                bold: ["Orion", "Architect", "Forge", "Sentinel", "Mentor"],
+              },
+              {
+                text: "The AI now intelligently routes simple questions to fast responses, and complex builds to the 6-agent pipeline.",
+              },
+            ],
+          },
+          {
+            title: "Internal Search & Real-Time UI",
+            bullets: [
+              {
+                text: "Built the Gyra Internal Search Engine using DuckDuckGo and Cheerio — no third-party search APIs required.",
+                bold: ["Gyra Internal Search Engine"],
+              },
+              {
+                text: "Added real-time web scraping. Atlas can now read up to 3 live web pages to answer questions accurately.",
+                bold: ["Atlas"],
+              },
+              {
+                text: "Redesigned the Thinking UI to show live timers, animated mini-orbs, and real-time page counts (e.g., '4 pages found').",
+              },
+            ],
+          },
+          {
+            title: "Auth & Design",
+            bullets: [
+              {
+                text: "Redesigned the /login page with a premium, minimalist UI matching industry leaders like Grok and X.",
+                links: [{ text: "/login", href: "/login" }],
+              },
+              {
+                text: "Added Google, GitHub (X), and Passwordless Email OTP authentication flows.",
+              },
+              {
+                text: "Upgraded the main dashboard empty state with the new dark-mode Gyra wordmark.",
+              },
+            ],
+          },
+        ],
+      },
       {
         version: "Gyra 1.2",
         date: "October 14, 2026",
@@ -68,10 +124,6 @@ const CHANGELOG: YearBlock[] = [
                 links: [{ text: "/playground", href: "/playground" }],
               },
               {
-                text: "Added the API Products page with category cards, tool previews, and pricing.",
-                links: [{ text: "API Products page", href: "/api" }],
-              },
-              {
                 text: "Added Media API documentation at /docs/media.",
                 links: [{ text: "/docs/media", href: "/docs/media" }],
               },
@@ -88,16 +140,10 @@ const CHANGELOG: YearBlock[] = [
                 bold: ["$0.90 per request"],
               },
               {
-                text: "AI API pricing at free tier, with pay-per-use for video and voice.",
-              },
-              {
                 text: "Request logging with per-endpoint breakdown and status codes.",
               },
               {
                 text: "Server-side rate limiting — 30 requests per minute per IP, 20 per key.",
-              },
-              {
-                text: "Atomic credit deduction with refund on upstream failure.",
               },
             ],
           },
@@ -109,29 +155,6 @@ const CHANGELOG: YearBlock[] = [
               },
               {
                 text: "Added the Gyra constellation diagram — one intelligence layer, every modality.",
-              },
-              {
-                text: "Added a full-screen wallpaper background to the analytics dashboard.",
-              },
-              {
-                text: "Added per-category iconography and accent colors across the platform.",
-              },
-            ],
-          },
-          {
-            title: "Fixed",
-            bullets: [
-              {
-                text: "Fixed API stats page resetting on every refresh — now persistent via Supabase.",
-              },
-              {
-                text: "Fixed endpoint counts not aligning with the daily total.",
-              },
-              {
-                text: "Fixed busiest day calculation to use real historical records.",
-              },
-              {
-                text: "Fixed media key prefix collision on the key creation page.",
               },
             ],
           },
@@ -147,10 +170,6 @@ const CHANGELOG: YearBlock[] = [
             bullets: [
               { text: "Added voice output for all replies." },
               { text: "Added theme switching in the settings panel." },
-              {
-                text: "Added James voice for developers to integrate into their projects.",
-                codeRefs: ["James"],
-              },
               { text: "Added hands-free voice mode with live audio visualizer." },
               {
                 text: "Added four voice personalities — Ara, James, Nova, and Sage.",
@@ -163,9 +182,6 @@ const CHANGELOG: YearBlock[] = [
               {
                 text: "Added shareable chat links with public read-only URLs.",
               },
-              {
-                text: "Added a message context menu with copy, regenerate, read aloud, and report.",
-              },
             ],
           },
           {
@@ -173,9 +189,6 @@ const CHANGELOG: YearBlock[] = [
             bullets: [
               { text: "Fixed streaming lag on slow connections." },
               { text: "Fixed chat session persistence issues on web and mobile." },
-              {
-                text: "Fixed email and password signup flow — instant access without email confirmation.",
-              },
             ],
           },
         ],
@@ -197,60 +210,26 @@ const CHANGELOG: YearBlock[] = [
                 text: "Introduced the public Developer API with free keys.",
                 codeRefs: ["gyra_"],
               },
-              { text: "Added web and mobile chat with streaming responses." },
-              {
-                text: "Added Vision — image, screenshot, and diagram understanding.",
-                bold: ["Vision"],
-              },
-              {
-                text: "Added File Intelligence — PDFs, images, and document analysis.",
-                bold: ["File Intelligence"],
-              },
+              { text: "Added Vision — image, screenshot, and diagram understanding.", bold: ["Vision"] },
               { text: "Added Think mode for step-by-step reasoning." },
               { text: "Added Search mode with real-time web results." },
-              { text: "Added persistent conversations with cloud sync." },
-              { text: "Added chat management — rename, pin, delete." },
-              { text: "Added rate limiting and jailbreak detection." },
-            ],
-          },
-          {
-            title: "Developer Platform",
-            bullets: [
-              {
-                text: "Published documentation at /docs.",
-                links: [{ text: "/docs", href: "/docs" }],
-              },
-              {
-                text: "Added interactive API Playground at /playground.",
-                links: [{ text: "/playground", href: "/playground" }],
-              },
-              { text: "Added Developer Console with usage analytics." },
-              {
-                text: "Added public status page at /status.",
-                links: [{ text: "/status", href: "/status" }],
-              },
-              {
-                text: "Introduced Gyra API, Gyra Studio (preview), Gyra Cloud (preview).",
-                bold: ["Gyra API", "Gyra Studio", "Gyra Cloud"],
-              },
             ],
           },
           {
             title: "Community",
             bullets: [
               {
-                text: "Launched the Telegram bot at @Gyra_AiBot.",
+                text: "Launched the Telegram bot at @GyraAI.",
                 links: [
-                  { text: "@Gyra_AiBot", href: "https://t.me/Gyra_AiBot" },
+                  { text: "@GyraAI", href: "https://t.me/GyraAI" },
                 ],
               },
               {
-                text: "Opened the community channel at @GenviaNews.",
+                text: "Opened the community channel at @GyraAiNews.",
                 links: [
-                  { text: "@GenviaNews", href: "https://t.me/GenviaNews" },
+                  { text: "@GyraAiNews", href: "https://t.me/GyraAiNews" },
                 ],
               },
-              { text: "Published official changelog and support channels." },
             ],
           },
         ],
@@ -271,91 +250,50 @@ function Code({ children }: { children: string }) {
 }
 
 // ============================================================
-// Bullet renderer — applies bold, code, links in order
+// Bullet renderer
 // ============================================================
 function BulletLine({ bullet }: { bullet: Bullet }) {
-  type Segment = {
-    start: number;
-    end: number;
-    node: React.ReactNode;
-  };
-
+  type Segment = { start: number; end: number; node: React.ReactNode; };
   const text = bullet.text;
   const segments: Segment[] = [];
   const used = new Set<number>();
 
   const claim = (start: number, end: number, node: React.ReactNode) => {
-    for (let i = start; i < end; i++) {
-      if (used.has(i)) return false;
-    }
+    for (let i = start; i < end; i++) { if (used.has(i)) return false; }
     for (let i = start; i < end; i++) used.add(i);
     segments.push({ start, end, node });
     return true;
   };
 
-  // Bold
   (bullet.bold || []).forEach((phrase, i) => {
     const idx = text.indexOf(phrase);
-    if (idx >= 0) {
-      claim(
-        idx,
-        idx + phrase.length,
-        <strong key={`b-${i}`} className="font-semibold text-white">
-          {phrase}
-        </strong>
-      );
-    }
+    if (idx >= 0) claim(idx, idx + phrase.length, <strong key={`b-${i}`} className="font-semibold text-white">{phrase}</strong>);
   });
 
-  // Code
   (bullet.codeRefs || []).forEach((phrase, i) => {
     const idx = text.indexOf(phrase);
-    if (idx >= 0) {
-      claim(idx, idx + phrase.length, <Code key={`c-${i}`}>{phrase}</Code>);
-    }
+    if (idx >= 0) claim(idx, idx + phrase.length, <Code key={`c-${i}`}>{phrase}</Code>);
   });
 
-  // Links
   (bullet.links || []).forEach((link, i) => {
     const idx = text.indexOf(link.text);
     if (idx >= 0) {
       const isExternal = link.href.startsWith("http");
-      claim(
-        idx,
-        idx + link.text.length,
-        isExternal ? (
-          <a
-            key={`l-${i}`}
-            href={link.href}
-            target="_blank"
-            rel="noreferrer"
-            className="text-blue-400 hover:text-blue-300 hover:underline"
-          >
-            {link.text}
-          </a>
-        ) : (
-          <Link
-            key={`l-${i}`}
-            href={link.href}
-            className="text-blue-400 hover:text-blue-300 hover:underline"
-          >
-            {link.text}
-          </Link>
-        )
-      );
+      claim(idx, idx + link.text.length, isExternal ? (
+        <a key={`l-${i}`} href={link.href} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">{link.text}</a>
+      ) : (
+        <Link key={`l-${i}`} href={link.href} className="text-blue-400 hover:text-blue-300 hover:underline">{link.text}</Link>
+      ));
     }
   });
 
   segments.sort((a, b) => a.start - b.start);
-
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
 
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i];
-    if (s.start > cursor) {
-      nodes.push(text.substring(cursor, s.start));
-    }
+    if (s.start > cursor) nodes.push(text.substring(cursor, s.start));
     nodes.push(s.node);
     cursor = s.end;
   }
@@ -363,12 +301,8 @@ function BulletLine({ bullet }: { bullet: Bullet }) {
 
   return (
     <li className="flex gap-3.5 leading-[1.7]">
-      <span className="text-zinc-700 select-none shrink-0 mt-[9px] text-[6px]">
-        ●
-      </span>
-      <span className="text-zinc-400">
-        {nodes.length > 0 ? nodes : text}
-      </span>
+      <span className="text-zinc-700 select-none shrink-0 mt-[9px] text-[6px]">●</span>
+      <span className="text-zinc-400">{nodes.length > 0 ? nodes : text}</span>
     </li>
   );
 }
@@ -389,46 +323,26 @@ export default function ChangelogPage() {
         <Link href="/" className="flex items-center gap-3">
           <Logo size={28} animated={false} />
           <span className="font-bold tracking-widest text-sm">GYRA</span>
-          <span className="text-zinc-600 text-xs tracking-widest">
-            CHANGELOG
-          </span>
+          <span className="text-zinc-600 text-xs tracking-widest">CHANGELOG</span>
         </Link>
         <div className="hidden md:flex items-center gap-6 text-sm text-zinc-400">
-          <Link href="/docs" className="hover:text-white transition-colors">
-            Docs
-          </Link>
-          <Link href="/api" className="hover:text-white transition-colors">
-            API
-          </Link>
-          <Link href="/status" className="hover:text-white transition-colors">
-            Status
-          </Link>
-          <Link href="/" className="hover:text-white transition-colors">
-            ← Back
-          </Link>
+          <Link href="/docs" className="hover:text-white transition-colors">Docs</Link>
+          <Link href="/api" className="hover:text-white transition-colors">API</Link>
+          <Link href="/status" className="hover:text-white transition-colors">Status</Link>
+          <Link href="/" className="hover:text-white transition-colors">← Back</Link>
         </div>
       </div>
 
       <div className="relative z-10 max-w-2xl mx-auto px-6 md:px-12 py-16">
         {/* Header */}
         <div className="mb-14">
-          <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">
-            Changelog
-          </p>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tighter mb-6">
-            What&apos;s new in Gyra
-          </h1>
+          <p className="text-xs tracking-[0.3em] text-zinc-500 uppercase mb-4">Changelog</p>
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tighter mb-6">What&apos;s new in Gyra</h1>
           <p className="text-zinc-400 leading-relaxed mb-3">
-            The Gyra platform is an intelligent, simplified AI assistant built
-            for people, developers, and the applications they build.
+            The Gyra platform is an intelligent, simplified AI assistant built for people, developers, and the applications they build.
           </p>
           <p className="text-zinc-500 text-sm leading-relaxed">
-            Every change we ship lives here. Newest first. For developer docs,
-            see the{" "}
-            <Link href="/docs" className="text-blue-400 hover:underline">
-              documentation
-            </Link>
-            .
+            Every change we ship lives here. Newest first. For developer docs, see the <Link href="/docs" className="text-blue-400 hover:underline">documentation</Link>.
           </p>
         </div>
 
@@ -436,52 +350,39 @@ export default function ChangelogPage() {
         <div className="mb-16 border-l-2 border-blue-500 bg-blue-500/5 pl-5 py-4">
           <p className="text-sm text-zinc-300 leading-relaxed">
             Subscribe to{" "}
-            <a
-              href="https://t.me/GenviaNews"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-400 hover:underline"
-            >
-              @GenviaNews
-            </a>{" "}
+            <a href="https://t.me/GyraAiNews" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">@GyraAiNews</a>{" "}
             for release announcements, and join the community at{" "}
-            <a
-              href="https://t.me/Gyra_AiBot"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-400 hover:underline"
-            >
-              @Gyra_AiBot
-            </a>
-            .
+            <a href="https://t.me/GyraAI" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">@GyraAI</a>.
           </p>
         </div>
 
         {/* Years */}
         {CHANGELOG.map((yearBlock) => (
           <section key={yearBlock.year} className="mb-20">
-            <h2 className="text-3xl font-bold tracking-tight mb-12">
-              {yearBlock.year}
-            </h2>
+            <h2 className="text-3xl font-bold tracking-tight mb-12">{yearBlock.year}</h2>
 
             <div className="flex flex-col gap-20">
               {yearBlock.entries.map((entry) => (
                 <article key={entry.date}>
                   {/* Version + date — editorial style */}
                   <div className="mb-8">
-                    <p className="text-2xl md:text-3xl font-bold tracking-tight mb-2">
-                      {entry.date}
-                    </p>
+                    <div className="flex items-center gap-3 mb-2">
+                      {entry.isLatest && (
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                        </span>
+                      )}
+                      <p className="text-3xl md:text-4xl font-bold tracking-tight text-white">
+                        {entry.date}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-3 text-sm">
-                      <span className="font-semibold text-zinc-300">
-                        {entry.version}
-                      </span>
+                      <span className="font-semibold text-zinc-300">{entry.version}</span>
                       {entry.highlight && (
                         <>
                           <span className="text-zinc-700">·</span>
-                          <span className="text-zinc-500 italic">
-                            {entry.highlight}
-                          </span>
+                          <span className="text-zinc-500 italic">{entry.highlight}</span>
                         </>
                       )}
                     </div>
@@ -491,9 +392,7 @@ export default function ChangelogPage() {
                   <div className="flex flex-col gap-10">
                     {entry.groups.map((group) => (
                       <div key={group.title}>
-                        <h4 className="text-sm font-semibold text-white mb-4 tracking-wide">
-                          {group.title}
-                        </h4>
+                        <h4 className="text-sm font-semibold text-white mb-4 tracking-wide">{group.title}</h4>
                         <ul className="flex flex-col gap-3">
                           {group.bullets.map((b, i) => (
                             <BulletLine key={i} bullet={b} />
@@ -512,18 +411,10 @@ export default function ChangelogPage() {
         <div className="mt-24 pt-8 border-t border-zinc-800/60 text-xs text-zinc-600 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <p>© 2026 Gyra · Genvia AI Company</p>
           <div className="flex flex-wrap gap-5">
-            <Link href="/" className="hover:text-white transition-colors">
-              Home
-            </Link>
-            <Link href="/docs" className="hover:text-white transition-colors">
-              Docs
-            </Link>
-            <Link href="/api" className="hover:text-white transition-colors">
-              API
-            </Link>
-            <Link href="/contact" className="hover:text-white transition-colors">
-              Contact
-            </Link>
+            <Link href="/" className="hover:text-white transition-colors">Home</Link>
+            <Link href="/docs" className="hover:text-white transition-colors">Docs</Link>
+            <Link href="/api" className="hover:text-white transition-colors">API</Link>
+            <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
           </div>
         </div>
       </div>
