@@ -486,20 +486,33 @@ export default function Dashboard() {
               });
             }
 
-            // 5. Done
-            if (parsed.type === "done") {
-              await supabase.from("messages").insert([{ chat_id: chatId, role: "assistant", content: fullReply }]);
+            // 🚨 5. Done (Captures real time and saves to DB) 🚨
+          if (parsed.type === "done") {
+            if (parsed.totalTime) {
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].reasoningTime = parsed.totalTime;
+                return next;
+              });
             }
-          } catch (e) {}
+            await supabase.from("messages").insert([{ chat_id: chatId, role: "assistant", content: fullReply }]);
+          }
+        } catch (e) {
+          console.error("Failed to parse chunk:", e);
         }
       }
-
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) => { const next = [...prev]; next[next.length - 1] = { role: "assistant", content: "Sorry, an error occurred." }; return next; });
     }
-    setLoading(false);
-  };
+
+  } catch (err) {
+    console.error(err);
+    setMessages((prev) => { 
+      const next = [...prev]; 
+      next[next.length - 1] = { role: "assistant", content: "Sorry, an error occurred." }; 
+      return next; 
+    });
+  }
+  setLoading(false);
+};
 
   const sendMessage = async (overrideText?: string) => {
     const textToSend = overrideText !== undefined ? overrideText : input;
@@ -1223,58 +1236,73 @@ export default function Dashboard() {
                   {msg.role === "assistant" && (
                     <div className="w-full max-w-[95%] flex flex-col items-start">
                       
-                      {/* 🚨 THE 6-AGENT TIMELINE & SEARCH WIDGET 🚨 */}
-                      {(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0 || msg.agentLogs?.length > 0) && (
-                         <div className="mb-4 w-full flex flex-col gap-2 border-l-2 border-zinc-800 pl-4 py-2">
-                           
-                           {/* AGENT LOGS (Visiting X agents) */}
-                           {msg.agentLogs && msg.agentLogs.length > 0 && (
-                             <div className="flex flex-col gap-2 mb-2">
-                               {msg.agentLogs.map((log: any, idx: number) => (
-                                 <div key={idx} className="flex items-center gap-2 text-sm text-zinc-400">
-                                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                                   <span className="font-semibold text-white">{log.agent}</span>
-                                   <span className="font-mono text-[13px]">{log.status}</span>
-                                 </div>
-                               ))}
-                             </div>
-                           )}
+                      {/* 🚨 GROK-STYLE STATUS WIDGET 🚨 */}
+{(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0 || msg.agentLogs?.length > 0) && (
+   <div className="mb-4 w-full flex flex-col gap-2 border-l-2 border-zinc-800 pl-4 py-2">
+     
+     {/* 1. THINKING PHASE (With Mini Orb & Real Time) */}
+     {(msg.agentLogs?.find((l: any) => l.status.includes("Analyzing") || l.status.includes("Thinking")) || msg.reasoning) && (
+       <details className="group">
+         <summary className="flex items-center gap-2 text-[14px] text-zinc-400 cursor-pointer select-none w-fit">
+           {/* Mini Glowing Orb Animation */}
+           <div className="w-4 h-4 rounded-full bg-blue-500/20 border border-blue-400/50 flex items-center justify-center relative overflow-hidden">
+             <div className="absolute inset-0 bg-blue-400/30 animate-pulse" />
+             <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-ping" />
+           </div>
+           
+           {/* Real-time Text */}
+           <span>Thinking for {msg.reasoningTime || 2}s</span>
+           <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+         </summary>
+         <div className="mt-2 text-[13px] text-zinc-500 pl-6 whitespace-pre-wrap font-mono">
+           {msg.reasoning || "Analyzing your request..."}
+         </div>
+       </details>
+     )}
 
-                           {/* SEARCH STATUS (Searching 4 pages) */}
-                           {msg.searchStatus && (
-                             <div className="flex items-center gap-2 text-sm text-zinc-400">
-                               {msg.searchStatus === "searching" && <span className="animate-pulse flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Searching web pages...</span>}
-                               {msg.searchStatus === "done" && msg.searchCount > 0 && (
-                                 <div className="flex items-center gap-2 bg-[#1c1c1c] border border-zinc-800 px-3 py-1.5 rounded-xl mt-1 cursor-pointer hover:bg-zinc-800 transition-colors">
-                                   <div className="flex -space-x-1">
-                                     <div className="w-4 h-4 bg-blue-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">W</div>
-                                     <div className="w-4 h-4 bg-purple-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">D</div>
-                                   </div>
-                                   <span className="text-[12px] font-medium text-zinc-300">{msg.searchCount} web pages found</span>
-                                 </div>
-                               )}
-                             </div>
-                           )}
-                           
-                           {/* REASONING STATUS (Thought for 3s) */}
-                           {(msg.reasoning || msg.reasoningTime > 0) && (
-                             <details className="group w-full">
-                               <summary className="flex items-center gap-1.5 text-[14px] text-zinc-400 cursor-pointer hover:text-zinc-200 select-none w-fit">
-                                 <span>Thought for {msg.reasoningTime || 1}s</span>
-                                 <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                               </summary>
-                               <div className="mt-2 pl-4 border-l-2 border-zinc-800 text-[14px] text-zinc-500 whitespace-pre-wrap leading-relaxed py-1">
-                                 {msg.reasoning || "Thinking..."}
-                               </div>
-                             </details>
-                           )}
-                         </div>
-                      )}
+     {/* 2. SEARCHING PHASE */}
+     {msg.agentLogs?.find((l: any) => l.status.includes("Searching")) && (
+       <div className="flex items-center gap-2 text-sm text-zinc-400 mt-2">
+         <div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div>
+         {msg.agentLogs?.find((l: any) => l.status.includes("Searching"))?.status}
+       </div>
+     )}
 
-                      {/* ACTUAL TEXT CONTENT (Markdown Rendered) */}
-                      <div className="w-full">
-                         {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
-                      </div>
+     {/* 3. RESULT PHASE (Real Number of Pages Found) */}
+     {msg.searchStatus === "done" && msg.sources && msg.sources.length > 0 && (
+       <div className="flex items-center gap-2 bg-[#1c1c1c] border border-zinc-800 px-3 py-1.5 rounded-xl mt-3 w-fit">
+         <div className="flex -space-x-1">
+           {/* Render domain initials */}
+           {msg.sources.slice(0, 3).map((src: any, i: number) => (
+             <div key={i} className="w-5 h-5 bg-zinc-800 rounded-full border-2 border-[#1c1c1c] flex items-center justify-center text-[9px] font-bold text-white uppercase">
+               {src.domain ? src.domain[0] : "W"}
+             </div>
+           ))}
+         </div>
+         <span className="text-[12px] font-medium text-zinc-300">{msg.sources.length} pages found</span>
+       </div>
+     )}
+
+     {/* 4. AGENT ACTIVITY LOGS (For Technical Builds) */}
+     {msg.agentLogs && msg.agentLogs.filter((l: any) => !l.status.includes("Thinking") && !l.status.includes("Searching")).length > 0 && (
+       <div className="flex flex-col gap-2 mt-2">
+         {msg.agentLogs.filter((l: any) => !l.status.includes("Thinking") && !l.status.includes("Searching")).map((log: any, idx: number) => (
+           <div key={idx} className="flex items-center gap-2 text-sm text-zinc-400">
+             <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+             <span className="font-semibold text-white">{log.agent}</span>
+             <span className="font-mono text-[13px]">{log.status}</span>
+           </div>
+         ))}
+       </div>
+     )}
+
+   </div>
+)}
+
+{/* ACTUAL TEXT CONTENT (Markdown Rendered) */}
+<div className="w-full">
+   {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
+</div>
 
                       {/* 🚨 GENERATED IMAGE UI 🚨 */}
                       {msg.generatedImage && (

@@ -125,11 +125,12 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          
+          const startTime = Date.now();
+
           // 🚨 PHASE 1: ATLAS (Research) 🚨
           let context = "";
           if (search) {
-            controller.enqueue(encodeEvent({ type: "status", agent: "Atlas", status: "Searching and scraping the web...", time: "3s" }));
+            controller.enqueue(encodeEvent({ type: "status", agent: "Atlas", status: "Searching and scraping the web..." }));
             const searchResult = await atlasInternalSearch(lastUserMessage);
             context = searchResult.context;
             
@@ -138,14 +139,13 @@ export async function POST(req: Request) {
                 type: "status", 
                 agent: "Atlas", 
                 status: `Scraped ${searchResult.sources.length} sources.`, 
-                time: "4s",
                 sources: searchResult.sources
               }));
             }
           }
 
           // 🚨 PHASE 2: ORION (Analysis) 🚨
-          controller.enqueue(encodeEvent({ type: "status", agent: "Orion", status: "Analyzing intent and requirements...", time: "2s" }));
+          controller.enqueue(encodeEvent({ type: "status", agent: "Orion", status: "Analyzing intent and requirements..." }));
           const orionPlan = await callGroq(
             "You are Orion, the Chief Intelligence Analyst. Analyze the user's request. Identify what they actually want, the tech stack needed, and potential risks. Be brief and direct.",
             `User Request: ${lastUserMessage}\n\nWeb Context: ${context}`
@@ -153,14 +153,14 @@ export async function POST(req: Request) {
           controller.enqueue(encodeEvent({ type: "reasoning", reasoning: orionPlan }));
 
           // 🚨 PHASE 3: ARCHITECT (Design) 🚨
-          controller.enqueue(encodeEvent({ type: "status", agent: "Architect", status: "Designing system architecture...", time: "2s" }));
+          controller.enqueue(encodeEvent({ type: "status", agent: "Architect", status: "Designing system architecture..." }));
           const architectPlan = await callGroq(
             "You are Architect. Based on Orion's plan, design the file structure, database schema, and exact technical approach. Do not write code yet.",
             `Orion's Plan: ${orionPlan}\n\nUser Request: ${lastUserMessage}`
           );
 
           // 🚨 PHASE 4: FORGE (Implementation) 🚨
-          controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Writing production code...", time: "5s" }));
+          controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Writing production code..." }));
           
           let forgeSystemPrompt = `You are Forge, Principal Software Engineer. Write the complete, full code based on this architecture: ${architectPlan}. Never use placeholders. Always state exact file paths.`;
           
@@ -198,14 +198,14 @@ export async function POST(req: Request) {
           }
 
           // 🚨 PHASE 5: SENTINEL (Review) 🚨
-          controller.enqueue(encodeEvent({ type: "status", agent: "Sentinel", status: "Reviewing code for bugs and security...", time: "2s" }));
+          controller.enqueue(encodeEvent({ type: "status", agent: "Sentinel", status: "Reviewing code for bugs and security..." }));
           const sentinelReview = await callGroq(
             "You are Sentinel, QA Engineer. Review this code for security flaws, bugs, or missing imports. If it's perfect, say 'Code verified.'",
             fullReply
           );
 
           // 🚨 PHASE 6: MENTOR (Delivery) 🚨
-          controller.enqueue(encodeEvent({ type: "status", agent: "Mentor", status: "Preparing explanation...", time: "1s" }));
+          controller.enqueue(encodeEvent({ type: "status", agent: "Mentor", status: "Preparing explanation..." }));
           const mentorExplanation = await callGroq(
             "You are Mentor. Explain how to run this code to a beginner.",
             fullReply
@@ -248,7 +248,11 @@ export async function POST(req: Request) {
             }
           }
 
-          controller.enqueue(encodeEvent({ type: "done" }));
+          // 🚨 CALCULATE REAL THINKING TIME 🚨
+          const endTime = Date.now();
+          const totalTimeSecs = ((endTime - startTime) / 1000).toFixed(1);
+          
+          controller.enqueue(encodeEvent({ type: "done", totalTime: totalTimeSecs }));
           controller.close();
 
         } catch (error) {
