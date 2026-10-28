@@ -6,6 +6,7 @@ import {
 } from "@/app/lib/subscription";
 import { FREE_LIMIT } from "@/app/lib/paymentConfig";
 import { fal } from "@fal-ai/client";
+import * as cheerio from "cheerio";
 
 fal.config({
   credentials: process.env.FAL_KEY,
@@ -26,30 +27,70 @@ function encodeEvent(data: any) {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-async function performTavilySearch(query: string) {
-  if (!process.env.TAVILY_API_KEY) return { context: "", count: 0 };
-  try {
-    const res = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: process.env.TAVILY_API_KEY,
-        query: query,
-        search_depth: "basic",
-        include_answer: true,
-        max_results: 4,
-      }),
-    });
-    const data = await res.json();
-    if (!data.results || data.results.length === 0) return { context: "", count: 0 };
+// --- HELPER: CALL GROQ ---
+async function callGroq(systemPrompt: string, userPrompt: string, stream = false) {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json", 
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}` 
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-oss-120b",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.3,
+      stream: stream,
+    }),
+  });
 
-    let context = "Here are recent web search results to help answer:\n\n";
-    data.results.forEach((r: any) => {
-      context += `Source: ${r.title} (${r.url})\n${r.content}\n\n`;
+  if (stream) return res;
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+// --- HELPER: ATLAS INTERNAL SEARCH (DuckDuckGo + Scraper) ---
+async function atlasInternalSearch(query: string) {
+  try {
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const searchRes = await fetch(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const searchHtml = await searchRes.text();
+    
+    const $ = cheerio.load(searchHtml);
+    const results: { title: string, url: string }[] = [];
+    
+    $('.result__a').each((i, el) => {
+      if (i >= 3) return; // Top 3 results
+      let url = $(el).attr('href');
+      if (url && url.startsWith('/l/?uddg=')) {
+        url = decodeURIComponent(url.split('uddg=')[1]);
+      }
+      if (url) results.push({ title: $(el).text(), url });
     });
-    return { context, count: data.results.length };
+
+    let context = "";
+    const sources: string[] = [];
+
+    for (const result of results) {
+      try {
+        const pageRes = await fetch(result.url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const pageHtml = await pageRes.text();
+        const page$ = cheerio.load(pageHtml);
+        
+        page$('script, style, nav, footer').remove();
+        const text = page$('body').text().replace(/\s+/g, ' ').trim().substring(0, 2000);
+        
+        context += `Source: ${result.url}\n${text}\n\n`;
+        sources.push(result.url);
+      } catch (e) {}
+    }
+
+    return { context, sources };
   } catch (e) {
-    return { context: "", count: 0 };
+    return { context: "", sources: [] };
   }
 }
 
@@ -61,6 +102,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "`messages` must be an array." }, { status: 400 });
     }
 
+    // Auth & Limits
     let subscription: Subscription = { plan: "free", status: "inactive", expiresAt: null, creditsUsd: 0 };
     const userToken = req.headers.get("x-gyra-user-token") || "";
     if (userToken) {
@@ -78,138 +120,140 @@ export async function POST(req: Request) {
       );
     }
 
-    let systemPrompt = `You are Gyra, an elite AI coding assistant created by Genvia AI Company. You act like Cursor.
-    
-CRITICAL INSTRUCTIONS FOR IMAGES:
-1. If a user uploads an image and asks a question, analyze the image and answer accurately.
-2. If a user asks you to MODIFY an image (e.g., "make her do a peace sign"), you MUST end your response with this exact format: [GENERATE_IMAGE: "detailed prompt of what to generate based on the image"].
-
-CRITICAL INSTRUCTIONS FOR CODE:
-1. Always provide the FULL, COMPLETE, and ACCURATE code. 
-2. Always state the exact file path directly above the code block (e.g., ### app/api/chat/route.ts).
-3. If a user asks you to read a file, output a special command exactly like this: [READ_FILE: "path/to/file.ts"]`;
-
-    if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
-
-    if (search) {
-      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
-      if (lastUserMsg) {
-        const searchResult = await performTavilySearch(lastUserMsg.content);
-        if (searchResult.count > 0) {
-          systemPrompt += `\n\nSEARCH MODE IS ON:\n\n${searchResult.context}`;
-        }
-      }
-    }
-
-    const hasImage = messages.some((m: any) => m.imageBase64);
-    let latestImageBase64 = "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-       if (messages[i].imageBase64) {
-           latestImageBase64 = messages[i].imageBase64;
-           break;
-       }
-    }
-
-    const formattedMessages = messages.map((m: any) => {
-      if (m.imageBase64) {
-        return {
-          role: m.role,
-          content: [
-            { type: "text", text: m.content },
-            { type: "image_url", image_url: { url: m.imageBase64 } }
-          ]
-        };
-      }
-      return { role: m.role, content: m.content };
-    });
-
-    const fullMessages = [{ role: "system", content: systemPrompt }, ...formattedMessages];
-    const model = hasImage ? "llama-3.2-90b-vision-preview" : "openai/gpt-oss-120b";
-
-    // 🚨 RAW FETCH TO GROQ 🚨
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: fullMessages,
-        temperature: 0.7,
-        stream: true,
-      }),
-    });
-
-    if (!res || !res.ok || !res.body) {
-      const errorText = await res.text();
-      console.error("Groq Error:", errorText);
-      return Response.json({ error: "Groq API failed" }, { status: 500 });
-    }
+    const lastUserMessage = messages[messages.length - 1].content;
 
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const reader = res.body!.getReader();
+          
+          // 🚨 PHASE 1: ATLAS (Research) 🚨
+          let context = "";
+          if (search) {
+            controller.enqueue(encodeEvent({ type: "status", agent: "Atlas", status: "Searching and scraping the web...", time: "3s" }));
+            const searchResult = await atlasInternalSearch(lastUserMessage);
+            context = searchResult.context;
+            
+            if (searchResult.sources.length > 0) {
+              controller.enqueue(encodeEvent({ 
+                type: "status", 
+                agent: "Atlas", 
+                status: `Scraped ${searchResult.sources.length} sources.`, 
+                time: "4s",
+                sources: searchResult.sources
+              }));
+            }
+          }
+
+          // 🚨 PHASE 2: ORION (Analysis) 🚨
+          controller.enqueue(encodeEvent({ type: "status", agent: "Orion", status: "Analyzing intent and requirements...", time: "2s" }));
+          const orionPlan = await callGroq(
+            "You are Orion, the Chief Intelligence Analyst. Analyze the user's request. Identify what they actually want, the tech stack needed, and potential risks. Be brief and direct.",
+            `User Request: ${lastUserMessage}\n\nWeb Context: ${context}`
+          );
+          controller.enqueue(encodeEvent({ type: "reasoning", reasoning: orionPlan }));
+
+          // 🚨 PHASE 3: ARCHITECT (Design) 🚨
+          controller.enqueue(encodeEvent({ type: "status", agent: "Architect", status: "Designing system architecture...", time: "2s" }));
+          const architectPlan = await callGroq(
+            "You are Architect. Based on Orion's plan, design the file structure, database schema, and exact technical approach. Do not write code yet.",
+            `Orion's Plan: ${orionPlan}\n\nUser Request: ${lastUserMessage}`
+          );
+
+          // 🚨 PHASE 4: FORGE (Implementation) 🚨
+          controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Writing production code...", time: "5s" }));
+          
+          let forgeSystemPrompt = `You are Forge, Principal Software Engineer. Write the complete, full code based on this architecture: ${architectPlan}. Never use placeholders. Always state exact file paths.`;
+          
+          if (think) {
+             forgeSystemPrompt += `\n\nTHINK MODE IS ON: Reason step-by-step before answering.`;
+          }
+
+          const forgeRes = await callGroq(forgeSystemPrompt, lastUserMessage, true);
+          
+          if (!forgeRes.ok || !forgeRes.body) {
+            throw new Error("Forge API failed.");
+          }
+
+          const reader = forgeRes.body.getReader();
           const decoder = new TextDecoder();
-          let buffer = "";
           let fullReply = "";
 
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
             for (const line of lines) {
               if (!line.startsWith("data: ")) continue;
               const dataStr = line.slice(6).trim();
-              
-              if (dataStr === "[DONE]") {
-                // 🚨 CHECK FOR IMAGE GENERATION 🚨
-                const imgMatch = fullReply.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
-                if (imgMatch) {
-                  const imagePrompt = imgMatch[1];
-                  if (isSuperGyra(subscription)) {
-                    try {
-                      controller.enqueue(encodeEvent({ content: "\n\n🎨 *Generating your image...*\n\n" }));
-                      const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
-                      const inputData: any = { prompt: imagePrompt, num_inference_steps: 28, guidance_scale: 3.5, num_images: 1 };
-                      if (latestImageBase64) inputData.image_url = latestImageBase64;
-                      else inputData.image_size = "square_hd";
-
-                      const falResult: any = await fal.subscribe(falModel, { input: inputData, logs: false });
-                      if (falResult.data?.images?.length > 0) {
-                        controller.enqueue(encodeEvent({ generatedImage: falResult.data.images[0].url }));
-                      }
-                    } catch (err) {
-                      console.error(err);
-                      controller.enqueue(encodeEvent({ content: "\n\n❌ Image generation failed." }));
-                    }
-                  } else {
-                    controller.enqueue(encodeEvent({ content: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra exclusive feature. \n\n[Upgrade here](/upgrade)` }));
-                  }
-                }
-
-                controller.enqueue(encodeEvent({ done: true }));
-                controller.close();
-                return;
-              }
-              
+              if (dataStr === "[DONE]") break;
               try {
                 const parsed = JSON.parse(dataStr);
-                const delta = parsed.choices?.[0]?.delta;
-                if (delta?.content) {
-                  fullReply += delta.content;
-                  controller.enqueue(encodeEvent({ content: delta.content }));
+                if (parsed.choices?.[0]?.delta?.content) {
+                  fullReply += parsed.choices[0].delta.content;
+                  controller.enqueue(encodeEvent({ type: "content", text: parsed.choices[0].delta.content }));
                 }
               } catch (e) {}
             }
           }
+
+          // 🚨 PHASE 5: SENTINEL (Review) 🚨
+          controller.enqueue(encodeEvent({ type: "status", agent: "Sentinel", status: "Reviewing code for bugs and security...", time: "2s" }));
+          const sentinelReview = await callGroq(
+            "You are Sentinel, QA Engineer. Review this code for security flaws, bugs, or missing imports. If it's perfect, say 'Code verified.'",
+            fullReply
+          );
+
+          // 🚨 PHASE 6: MENTOR (Delivery) 🚨
+          controller.enqueue(encodeEvent({ type: "status", agent: "Mentor", status: "Preparing explanation...", time: "1s" }));
+          const mentorExplanation = await callGroq(
+            "You are Mentor. Explain how to run this code to a beginner.",
+            fullReply
+          );
+
+          // Final package
+          controller.enqueue(encodeEvent({ 
+            type: "content", 
+            text: `\n\n---\n### 🛡️ Sentinel Review\n${sentinelReview}\n\n### 🎓 Mentor Guide\n${mentorExplanation}` 
+          }));
+
+          // 🚨 PHASE 7: IMAGE GENERATION (Fal) 🚨
+          const imgMatch = fullReply.match(/\[GENERATE_IMAGE:\s*"(.+?)"\]/);
+          if (imgMatch) {
+            const imagePrompt = imgMatch[1];
+            if (isSuperGyra(subscription)) {
+              try {
+                controller.enqueue(encodeEvent({ type: "content", text: "\n\n🎨 *Generating your image...*\n\n" }));
+                
+                let latestImageBase64 = "";
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].imageBase64) { latestImageBase64 = messages[i].imageBase64; break; }
+                }
+
+                const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
+                const inputData: any = { prompt: imagePrompt, num_inference_steps: 28, guidance_scale: 3.5, num_images: 1 };
+                if (latestImageBase64) inputData.image_url = latestImageBase64;
+                else inputData.image_size = "square_hd";
+
+                const falResult: any = await fal.subscribe(falModel, { input: inputData, logs: false });
+                if (falResult.data?.images?.length > 0) {
+                  controller.enqueue(encodeEvent({ type: "image", url: falResult.data.images[0].url }));
+                }
+              } catch (err) {
+                console.error(err);
+                controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image generation failed." }));
+              }
+            } else {
+              controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra exclusive feature. \n\n[Upgrade here](/upgrade)` }));
+            }
+          }
+
+          controller.enqueue(encodeEvent({ type: "done" }));
           controller.close();
+
         } catch (error) {
-          controller.enqueue(encodeEvent({ error: "Stream error" }));
+          console.error(error);
+          controller.enqueue(encodeEvent({ type: "error", text: "Agent pipeline failed." }));
           controller.close();
         }
       }

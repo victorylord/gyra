@@ -334,103 +334,142 @@ export default function Dashboard() {
   };
 
   // ============================================================
-  // CORE CHAT SENDER (Vercel AI SDK Format)
+  // CORE CHAT SENDER (6-Agent Pipeline)
   // ============================================================
   const runChat = async (
-  text: string,
-  imageBase64?: string,
-  fileBase64?: string
-) => {
-  if (!text.trim() && !imageBase64 && !fileBase64) return;
-  if (attachment?.status === "nsfw") return;
+    text: string,
+    imageBase64?: string,
+    fileBase64?: string
+  ) => {
+    if (!text.trim() && !imageBase64 && !fileBase64) return;
+    if (attachment?.status === "nsfw") return;
 
-  let chatId = activeChatId;
-  let isNewChat = false;
+    let chatId = activeChatId;
+    let isNewChat = false;
 
-  if (!chatId) {
-    if (!user) return;
-    const { data } = await supabase
-      .from("chats")
-      .insert([{ user_id: user.id, title: "New Conversation" }])
-      .select()
-      .single();
-    if (!data) return;
-    setChats([data, ...chats]);
-    setActiveChatId(data.id);
-    chatId = data.id;
-    isNewChat = true;
-  }
+    if (!chatId) {
+      if (!user) return;
+      const { data } = await supabase
+        .from("chats")
+        .insert([{ user_id: user.id, title: "New Conversation" }])
+        .select()
+        .single();
+      if (!data) return;
+      setChats([data, ...chats]);
+      setActiveChatId(data.id);
+      chatId = data.id;
+      isNewChat = true;
+    }
 
-  const userMessage: any = { role: "user", content: text.trim() };
-  if (imageBase64) userMessage.imageBase64 = imageBase64;
-  if (fileBase64) userMessage.fileBase64 = fileBase64;
+    const userMessage: any = { role: "user", content: text.trim() };
+    if (imageBase64) userMessage.imageBase64 = imageBase64;
+    if (fileBase64) userMessage.fileBase64 = fileBase64;
 
-  const updatedMessages = [...messagesRef.current, userMessage];
-  setMessages(updatedMessages);
-  setLoading(true);
+    const updatedMessages = [...messagesRef.current, userMessage];
+    setMessages(updatedMessages);
+    setLoading(true);
 
-  await supabase.from("messages").insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
+    await supabase
+      .from("messages")
+      .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
 
-  if (isNewChat) {
-    fetch("/api/title", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text || "Analyzed an image" }) })
-    .then(res => res.json()).then(data => {
-      if (data.title) {
-        supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
-        setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
-      }
-    });
-  }
+    if (isNewChat) {
+      fetch("/api/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text || "Analyzed an image" }),
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.title) {
+          supabase.from("chats").update({ title: data.title }).eq("id", chatId).then();
+          setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: data.title } : c));
+        }
+      });
+    }
 
-  setMessages([...updatedMessages, { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null }]);
+    // Initialize assistant message with 6-agent tracking
+    setMessages([
+      ...updatedMessages,
+      { role: "assistant", content: "", reasoning: "", reasoningTime: 0, searchStatus: null, searchCount: 0, generatedImage: null, agentLogs: [] },
+    ]);
 
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { "x-gyra-user-token": token } : {}) },
-      body: JSON.stringify({
-        messages: updatedMessages.map((m: any) => ({ role: m.role, content: m.content, imageBase64: m.imageBase64, fileBase64: m.fileBase64 })),
-        think: thinkMode,
-        search: searchMode,
-      }),
-    });
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { "x-gyra-user-token": token } : {}) },
+        body: JSON.stringify({
+          messages: updatedMessages.map((m: any) => ({ role: m.role, content: m.content, imageBase64: m.imageBase64, fileBase64: m.fileBase64 })),
+          think: thinkMode,
+          search: searchMode,
+        }),
+      });
 
-    if (res.status === 402) { setLoading(false); setMessages((prev) => prev.slice(0, -1)); setShowLimitModal(true); return; }
-    if (!res.body) throw new Error("No response body");
+      if (res.status === 402) { setLoading(false); setMessages((prev) => prev.slice(0, -1)); setShowLimitModal(true); return; }
+      if (!res.body) throw new Error("No response body");
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let fullReply = "";
-    let buffer = "";
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullReply = "";
+      let buffer = "";
+      let startTime = Date.now();
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
         
-        // Log every line so you can see it in the browser console
-        console.log("Receiving line:", line);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-        if (line.startsWith("data:")) {
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
           const dataStr = line.slice(5).trim();
+          if (!dataStr) continue;
           
-          // Skip the [DONE] message
-          if (dataStr === "[DONE]") continue;
-
           try {
             const parsed = JSON.parse(dataStr);
             
-            // Handle normal text chunks
-            if (parsed.content) {
-              fullReply += parsed.content;
+            // 1. Catch Agent Statuses
+            if (parsed.type === "status") {
+              setMessages((prev) => {
+                const next = [...prev];
+                const currentMsg = next[next.length - 1];
+                currentMsg.agentLogs = [...(currentMsg.agentLogs || []), {
+                  agent: parsed.agent,
+                  status: parsed.status,
+                  time: parsed.time
+                }];
+                
+                // Update the search status if Atlas is done
+                if (parsed.agent === "Atlas") {
+                   if (parsed.status.includes("Scraped")) {
+                     currentMsg.searchStatus = "done";
+                     currentMsg.searchCount = parseInt(parsed.status.match(/\d+/)?.[0] || "3");
+                   } else {
+                     currentMsg.searchStatus = "searching";
+                   }
+                }
+                return next;
+              });
+            }
+
+            // 2. Catch Orion's Reasoning
+            if (parsed.type === "reasoning") {
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1].reasoningTime = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+                next[next.length - 1].reasoning = parsed.reasoning;
+                return next;
+              });
+            }
+
+            // 3. Catch Streaming Text
+            if (parsed.type === "content") {
+              fullReply += parsed.text;
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1].content = fullReply;
@@ -438,31 +477,29 @@ export default function Dashboard() {
               });
             }
 
-            // Handle generated images
-            if (parsed.generatedImage) {
+            // 4. Catch Generated Images
+            if (parsed.type === "image") {
               setMessages((prev) => {
                 const next = [...prev];
-                next[next.length - 1].generatedImage = parsed.generatedImage;
+                next[next.length - 1].generatedImage = parsed.url;
                 return next;
               });
             }
-          } catch (e) {
-            console.error("Failed to parse chunk:", dataStr);
-          }
+
+            // 5. Done
+            if (parsed.type === "done") {
+              await supabase.from("messages").insert([{ chat_id: chatId, role: "assistant", content: fullReply }]);
+            }
+          } catch (e) {}
         }
       }
-    }
 
-    if (fullReply) {
-      await supabase.from("messages").insert([{ chat_id: chatId, role: "assistant", content: fullReply }]);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => { const next = [...prev]; next[next.length - 1] = { role: "assistant", content: "Sorry, an error occurred." }; return next; });
     }
-
-  } catch (err) {
-    console.error(err);
-    setMessages((prev) => { const next = [...prev]; next[next.length - 1] = { role: "assistant", content: "Sorry, an error occurred." }; return next; });
-  }
-  setLoading(false);
-};
+    setLoading(false);
+  };
 
   const sendMessage = async (overrideText?: string) => {
     const textToSend = overrideText !== undefined ? overrideText : input;
@@ -1186,29 +1223,44 @@ export default function Dashboard() {
                   {msg.role === "assistant" && (
                     <div className="w-full max-w-[95%] flex flex-col items-start">
                       
-                      {/* THINKING & SEARCHING WIDGET */}
-                      {(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0) && (
-                         <div className="mb-3 w-full">
+                      {/* 🚨 THE 6-AGENT TIMELINE & SEARCH WIDGET 🚨 */}
+                      {(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0 || msg.agentLogs?.length > 0) && (
+                         <div className="mb-4 w-full flex flex-col gap-2 border-l-2 border-zinc-800 pl-4 py-2">
+                           
+                           {/* AGENT LOGS (Visiting X agents) */}
+                           {msg.agentLogs && msg.agentLogs.length > 0 && (
+                             <div className="flex flex-col gap-2 mb-2">
+                               {msg.agentLogs.map((log: any, idx: number) => (
+                                 <div key={idx} className="flex items-center gap-2 text-sm text-zinc-400">
+                                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                   <span className="font-semibold text-white">{log.agent}</span>
+                                   <span className="font-mono text-[13px]">{log.status}</span>
+                                 </div>
+                               ))}
+                             </div>
+                           )}
+
+                           {/* SEARCH STATUS (Searching 4 pages) */}
                            {msg.searchStatus && (
-                             <div className="flex items-center gap-2 text-sm text-zinc-400 mb-3">
-                               {msg.searchStatus === "searching" && <span className="animate-pulse flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Browsing the web...</span>}
-                               {msg.searchStatus === "reading" && <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Reading {msg.searchCount} pages...</span>}
+                             <div className="flex items-center gap-2 text-sm text-zinc-400">
+                               {msg.searchStatus === "searching" && <span className="animate-pulse flex items-center gap-2"><div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin"></div> Searching web pages...</span>}
                                {msg.searchStatus === "done" && msg.searchCount > 0 && (
-                                 <div className="flex items-center gap-2 bg-[#212121] border border-zinc-800 px-3 py-1.5 rounded-xl mt-2 cursor-pointer hover:bg-zinc-800 transition-colors">
+                                 <div className="flex items-center gap-2 bg-[#1c1c1c] border border-zinc-800 px-3 py-1.5 rounded-xl mt-1 cursor-pointer hover:bg-zinc-800 transition-colors">
                                    <div className="flex -space-x-1">
-                                     <div className="w-4 h-4 bg-blue-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">F</div>
-                                     <div className="w-4 h-4 bg-purple-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">W</div>
+                                     <div className="w-4 h-4 bg-blue-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">W</div>
+                                     <div className="w-4 h-4 bg-purple-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold border border-black">D</div>
                                    </div>
-                                   <span className="text-[12px] font-medium text-zinc-300">{msg.searchCount} web pages</span>
+                                   <span className="text-[12px] font-medium text-zinc-300">{msg.searchCount} web pages found</span>
                                  </div>
                                )}
                              </div>
                            )}
                            
+                           {/* REASONING STATUS (Thought for 3s) */}
                            {(msg.reasoning || msg.reasoningTime > 0) && (
                              <details className="group w-full">
                                <summary className="flex items-center gap-1.5 text-[14px] text-zinc-400 cursor-pointer hover:text-zinc-200 select-none w-fit">
-                                 <span>Thought for {msg.reasoningTime || 1} seconds</span>
+                                 <span>Thought for {msg.reasoningTime || 1}s</span>
                                  <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                                </summary>
                                <div className="mt-2 pl-4 border-l-2 border-zinc-800 text-[14px] text-zinc-500 whitespace-pre-wrap leading-relaxed py-1">
