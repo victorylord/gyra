@@ -231,7 +231,7 @@ export async function POST(req: Request) {
                 }
 
                 const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
-                const inputData: any = { prompt: imagePrompt, num_inference_steps: 28, guidance_scale: 3.5, num_images: 1 };
+                const inputData: any = { prompt: imagePrompt, num_inference_steps: 28, guidance_scale: 3.5, num_images: 1, enable_safety_checker: false };
                 if (latestImageBase64) inputData.image_url = latestImageBase64;
                 else inputData.image_size = "square_hd";
 
