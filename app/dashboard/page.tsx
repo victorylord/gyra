@@ -185,6 +185,10 @@ function DashboardContent() {
     null
   );
 
+  // File Reading States
+  const [showFileModal, setShowFileModal] = useState(false);
+  const [fileProcessingState, setFileProcessingState] = useState<"idle" | "reading" | "done">("idle");
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<any[]>([]);
   useEffect(() => {
@@ -275,6 +279,92 @@ function DashboardContent() {
     }
   }, [messages]);
 
+  // Check for files to trigger the reading sequence
+  useEffect(() => {
+    const checkProjectFiles = async () => {
+      if (!projectId || messages.length > 0 || fileProcessingState !== "idle") return;
+      
+      const { data } = await supabase.from("project_files").select("id").eq("project_id", projectId).limit(1);
+      if (data && data.length > 0) {
+        setShowFileModal(true);
+      }
+    };
+    checkProjectFiles();
+  }, [projectId, messages.length, fileProcessingState]);
+
+  const runFileReadingSequence = async () => {
+    setLoading(true);
+    setMessages(prev => [...prev, { 
+      role: "assistant", 
+      content: "", 
+      isFileReading: true,
+      reasoningTime: 0,
+      agentLogs: [] 
+    }]);
+
+    try {
+      const res = await fetch("/api/projects/read-files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId })
+      });
+
+      if (!res.body) throw new Error("No body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullReply = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const dataStr = line.slice(5).trim();
+          if (!dataStr) continue;
+          
+          try {
+            const parsed = JSON.parse(dataStr);
+            
+            if (parsed.type === "status") {
+              setMessages(prev => {
+                const next = [...prev];
+                const msg = next[next.length - 1];
+                msg.agentLogs = [...(msg.agentLogs || []), { agent: parsed.agent, status: parsed.status }];
+                return next;
+              });
+            }
+
+            if (parsed.type === "content") {
+              fullReply += parsed.text;
+              setMessages(prev => {
+                const next = [...prev];
+                next[next.length - 1].content = fullReply;
+                return next;
+              });
+            }
+
+            if (parsed.type === "done") {
+              setMessages(prev => {
+                const next = [...prev];
+                next[next.length - 1].isFileReading = false;
+                return next;
+              });
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setFileProcessingState("done");
+    setLoading(false);
+  };
+
   // ============================================================
   // MESSAGE LOADING
   // ============================================================
@@ -309,6 +399,8 @@ function DashboardContent() {
       setActiveChatId(data.id);
       setMessages([]);
       setIsSidebarOpen(false);
+      setFileProcessingState("idle");
+      setShowFileModal(false);
     }
   };
 
@@ -713,6 +805,32 @@ function DashboardContent() {
   // ============================================================
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
+      
+      {/* 🚨 CINEMATIC FILE READING POPUP 🚨 */}
+      {showFileModal && (
+        <div className="absolute inset-0 bg-black/80 z-[100] flex items-center justify-center p-6 backdrop-blur-md">
+          <div className="bg-[#14141c] border border-zinc-800 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/30 rounded-full flex items-center justify-center mx-auto mb-5">
+              <FileText className="w-8 h-8 text-blue-500" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">File Recognized</h2>
+            <p className="text-zinc-400 text-sm mb-6">
+              A file was attached to this project. Stay tuned while our 6 agents read and index your file.
+            </p>
+            <button 
+              onClick={() => {
+                setShowFileModal(false);
+                setFileProcessingState("reading");
+                runFileReadingSequence();
+              }}
+              className="bg-white text-black px-6 py-2.5 rounded-full font-semibold w-full hover:bg-zinc-200 transition-colors"
+            >
+              Ok, Start Reading
+            </button>
+          </div>
+        </div>
+      )}
+
       {voiceEnabled && latestAssistantMessage && (
         <VoiceOutput
           enabled={voiceEnabled}
@@ -1270,6 +1388,19 @@ function DashboardContent() {
                   {msg.role === "assistant" && (
                     <div className="w-full max-w-[95%] flex flex-col items-start">
                       
+                      {/* 🚨 CINEMATIC FILE READING BAR 🚨 */}
+                      {msg.isFileReading && (
+                        <div className="w-full mb-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span className="text-sm text-blue-400 font-medium animate-pulse">Reading file structure...</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 w-1/2 animate-[loading_2s_ease-in-out_infinite] rounded-full"></div>
+                          </div>
+                        </div>
+                      )}
+
 {(msg.searchStatus || msg.reasoning || msg.reasoningTime > 0 || msg.agentLogs?.length > 0) && (
    <div className="mb-4 w-full flex flex-col gap-2 border-l-2 border-zinc-800 pl-4 py-2">
      
@@ -1326,7 +1457,7 @@ function DashboardContent() {
 )}
 
 <div className="w-full">
-   {msg.content ? <MessageContent content={msg.content} /> : (loading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
+   {msg.content ? <MessageContent content={msg.content} /> : (loading && !msg.isFileReading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
 </div>
 
                       {msg.generatedImage && (
@@ -1369,7 +1500,7 @@ function DashboardContent() {
                         </div>
                       )}
 
-                      {msg.content && !loading && (
+                      {msg.content && !loading && !msg.isFileReading && (
                         <div className="flex items-center gap-1 mt-3 text-zinc-400">
                           <button onClick={() => navigator.clipboard.writeText(msg.content)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Copy"><Copy className="w-[18px] h-[18px]" /></button>
                           <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors" title="Good response"><ThumbsUp className="w-[18px] h-[18px]" /></button>

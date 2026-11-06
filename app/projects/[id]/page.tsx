@@ -29,6 +29,10 @@ export default function ProjectWorkspace() {
   const [isInviting, setIsInviting] = useState(false);
   const [activeRoleMenu, setActiveRoleMenu] = useState<string | null>(null);
 
+  // File Upload State
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,6 +66,33 @@ export default function ProjectWorkspace() {
     if (accessData) setInvitedUsers(accessData);
 
     setLoading(false);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      
+      const { error } = await supabase.from("project_files").insert([{
+        project_id: projectId,
+        name: file.name,
+        content: content, // Saving raw text
+        type: file.type
+      }]);
+
+      if (error) {
+        alert("Failed to save file: " + error.message);
+      } else {
+        alert("File uploaded and indexed successfully!");
+      }
+      setIsUploading(false);
+    };
+    
+    reader.readAsText(file); // Reads .txt, .md, .csv, code files
   };
 
   const handleDeleteProject = async () => {
@@ -230,8 +261,8 @@ export default function ProjectWorkspace() {
                     <div className="flex items-center gap-3"><FolderOpen className="w-4 h-4" /> Manage Files</div>
                     <ChevronDown className="w-4 h-4 -rotate-90" />
                   </button>
-                  <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
-                    <Plus className="w-4 h-4" /> Upload File
+                  <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
+                    <Plus className="w-4 h-4" /> {isUploading ? "Uploading..." : "Upload File"}
                   </button>
                 </div>
               </div>
@@ -249,6 +280,15 @@ export default function ProjectWorkspace() {
           </div>
         </div>
       )}
+
+      {/* Hidden File Input for Uploads */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileUpload} 
+        className="hidden" 
+        accept=".txt,.md,.csv,.json,.js,.ts,.py" 
+      />
 
       {/* SHARE PROJECT MODAL */}
       {activeModal === "share" && (
@@ -322,8 +362,7 @@ export default function ProjectWorkspace() {
       {activeModal === "delete" && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6" onClick={() => setActiveModal(null)}>
           <div className="bg-[#1c1c1e] w-full max-w-sm rounded-3xl p-6 text-center animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-            <div className="w-12() h-12 rounded-full bg-red {
--500/10 flex items-center justify -center mx-auto mb-4 const"><Trash className="w params-6 h-6 text-red-500" /></div>
+            <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4"><Trash className="w-6 h-6 text-red-500" /></div>
             <h2 className="text-xl font-bold mb-2">Delete Project?</h2>
             <p className="text-sm text-zinc-400 mb-6">This will permanently delete the project and all its conversations. This action cannot be undone.</p>
             <div className="flex gap-3">
