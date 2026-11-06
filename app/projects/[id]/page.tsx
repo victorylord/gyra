@@ -31,7 +31,6 @@ export default function ProjectWorkspace() {
 
   // File Upload State
   const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -68,31 +67,40 @@ export default function ProjectWorkspace() {
     setLoading(false);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsUploading(true);
+  // 🚨 FIX: Create a dynamic input to bypass modal rendering issues
+  const triggerFileUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt,.md,.csv,.json,.js,.ts,.py"; // Add .pdf here later if you install a parser
+    
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setIsUploading(true);
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const content = event.target?.result as string;
+        
+        const { error } = await supabase.from("project_files").insert([{
+          project_id: projectId,
+          name: file.name,
+          content: content, 
+          type: file.type
+        }]);
+
+        if (error) {
+          alert("Failed to save file: " + error.message);
+        } else {
+          alert("File uploaded and indexed successfully!");
+        }
+        setIsUploading(false);
+      };
       
-      const { error } = await supabase.from("project_files").insert([{
-        project_id: projectId,
-        name: file.name,
-        content: content, // Saving raw text
-        type: file.type
-      }]);
-
-      if (error) {
-        alert("Failed to save file: " + error.message);
-      } else {
-        alert("File uploaded and indexed successfully!");
-      }
-      setIsUploading(false);
+      reader.readAsText(file); 
     };
     
-    reader.readAsText(file); // Reads .txt, .md, .csv, code files
+    input.click();
   };
 
   const handleDeleteProject = async () => {
@@ -257,11 +265,11 @@ export default function ProjectWorkspace() {
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-2">Project Files</label>
                 <div className="bg-[#14141c] border border-zinc-800 rounded-2xl overflow-hidden">
-                  <button onClick={() => router.push(`/projects/${projectId}/files`)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
+                  <button onClick={() => { setActiveModal(null); router.push(`/projects/${projectId}/files`); }} className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
                     <div className="flex items-center gap-3"><FolderOpen className="w-4 h-4" /> Manage Files</div>
                     <ChevronDown className="w-4 h-4 -rotate-90" />
                   </button>
-                  <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
+                  <button onClick={triggerFileUpload} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800 border-b border-zinc-800 text-sm text-zinc-300">
                     <Plus className="w-4 h-4" /> {isUploading ? "Uploading..." : "Upload File"}
                   </button>
                 </div>
@@ -280,15 +288,6 @@ export default function ProjectWorkspace() {
           </div>
         </div>
       )}
-
-      {/* Hidden File Input for Uploads */}
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileUpload} 
-        className="hidden" 
-        accept=".txt,.md,.csv,.json,.js,.ts,.py" 
-      />
 
       {/* SHARE PROJECT MODAL */}
       {activeModal === "share" && (
