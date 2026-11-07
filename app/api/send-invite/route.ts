@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-// Ensure the API key is loaded
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
@@ -12,50 +11,98 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Make sure NEXT_PUBLIC_SITE_URL is in your .env (e.g., https://gyra.ng)
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://gyra.ng";
     const projectLink = `${baseUrl}/project/${projectId}`;
 
-    // 🚨 CRITICAL: The from address MUST match your verified subdomain exactly
     const { data, error } = await resend.emails.send({
       from: "Gyra Projects <projects@updates.gyra.ng>", 
       to: [email],
-      subject: `Project shared with you: "${projectName}"`,
+      subject: `You've been invited to a project on Gyra`,
       html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; background-color: #0a0a0f; color: #ffffff; padding: 40px; border-radius: 16px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="color: #ffffff; margin: 0;">Gyra</h1>
-          </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #000000; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
           
-          <p style="font-size: 16px; line-height: 1.5; color: #d4d4d8;">
-            A user has shared a project with you on Gyra.ng. You may access the project via the details below:
-          </p>
-          
-          <div style="background-color: #1c1c1e; padding: 20px; border-radius: 12px; margin: 20px 0;">
-            <p style="margin: 0 0 10px 0; color: #a1a1aa;"><strong>Project Name:</strong> ${projectName}</p>
-          </div>
+          <!-- Main Container -->
+          <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #000000; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" max-width="500" border="0" cellspacing="0" cellpadding="0" style="max-width: 500px; background-color: #0a0a0f; border: 1px solid #27272a; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                  
+                  <!-- Header with Logo -->
+                  <tr>
+                    <td align="center" style="padding: 40px 40px 20px 40px;">
+                      <table border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="vertical-align: middle; padding-right: 12px;">
+                            <!-- Logo Image -->
+                            <img src="https://gyra.ng/gyra-logo.png" alt="Gyra Logo" width="32" height="32" style="display: block; border-radius: 8px;" />
+                          </td>
+                          <td style="vertical-align: middle;">
+                            <span style="color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: -0.5px;">Gyra</span>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-          <p style="font-size: 16px; line-height: 1.5; color: #d4d4d8;">
-            Click the following link to start using this project:
-          </p>
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 20px 40px 40px 40px; text-align: center;">
+                      <h1 style="color: #ffffff; font-size: 20px; font-weight: 600; margin: 0 0 16px 0; letter-spacing: -0.3px;">
+                        Project Invitation
+                      </h1>
+                      <p style="color: #a1a1aa; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+                        You have been invited to collaborate on a project.
+                      </p>
 
-          <a href="${projectLink}" style="display: inline-block; background-color: #3b82f6; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; margin: 20px 0;">
-            Open Project
-          </a>
+                      <!-- Project Name Card -->
+                      <div style="background-color: #18181b; border: 1px solid #27272a; border-radius: 16px; padding: 20px; margin-bottom: 32px; text-align: left;">
+                        <p style="color: #71717a; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin: 0 0 8px 0;">Project Name</p>
+                        <p style="color: #ffffff; font-size: 18px; font-weight: 500; margin: 0;">${projectName}</p>
+                      </div>
 
-          <p style="font-size: 14px; line-height: 1.5; color: #71717a; margin-top: 30px;">
-            If you are not expecting an invitation to access a project, please ignore this email.
-          </p>
-          
-          <div style="margin-top: 40px; border-top: 1px solid #27272a; padding-top: 20px;">
-            <p style="font-size: 12px; color: #71717a;">© 2026 Gyra · Genvia AI Company</p>
-          </div>
-        </div>
+                      <!-- CTA Button -->
+                      <table border="0" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
+                        <tr>
+                          <td align="center" style="border-radius: 100px; background-color: #ffffff;">
+                            <a href="${projectLink}" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 15px; font-weight: 600; color: #000000; text-decoration: none; border-radius: 100px;">
+                              Open Project
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="background-color: #09090b; padding: 24px 40px; text-align: center; border-top: 1px solid #18181b;">
+                      <p style="color: #52525b; font-size: 12px; line-height: 1.5; margin: 0;">
+                        If you weren't expecting this invitation, you can safely ignore this email.
+                      </p>
+                      <p style="color: #3f3f46; font-size: 11px; margin: 12px 0 0 0;">
+                        © 2026 Gyra · Genvia AI Company
+                      </p>
+                    </td>
+                  </tr>
+
+                </table>
+              </td>
+            </tr>
+          </table>
+
+        </body>
+        </html>
       `,
     });
 
     if (error) {
-      // 🚨 This will log the exact error from Resend in your Vercel logs
       console.error("Resend API Error:", error);
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

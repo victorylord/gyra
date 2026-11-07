@@ -26,35 +26,43 @@ export default function ProjectFiles() {
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsUploading(true);
+  const file = e.target.files?.[0];
+  if (!file) return;
+  setIsUploading(true);
 
-    // 1. Upload to Supabase Storage (You need a bucket named 'project-files')
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `${projectId}/${fileName}`;
+  // 1. Upload to Supabase Storage
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${Math.random()}.${fileExt}`;
+  const filePath = `${projectId}/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage.from('project-files').upload(filePath, file);
-    
-    if (!uploadError) {
-      // 2. Get public URL
-      const { data: { publicUrl } } = supabase.storage.from('project-files').getPublicUrl(filePath);
-
-      // 3. Save to Database
-      const { data } = await supabase.from("project_files").insert([{
-        project_id: projectId,
-        name: file.name,
-        url: publicUrl,
-        type: file.type
-      }]).select().single();
-
-      if (data) setFiles([data, ...files]);
-    } else {
-      alert("Upload failed. Make sure you created a 'project-files' bucket in Supabase Storage.");
-    }
+  const { error: uploadError } = await supabase.storage.from('project-files').upload(filePath, file);
+  
+  if (uploadError) {
+    // 🚨 THIS WILL SHOW YOU THE EXACT ERROR
+    alert(`Upload failed: ${uploadError.message}`);
     setIsUploading(false);
-  };
+    return;
+  }
+
+  // 2. Get public URL
+  const { data: { publicUrl } } = supabase.storage.from('project-files').getPublicUrl(filePath);
+
+  // 3. Save to Database
+  const { data, error: dbError } = await supabase.from("project_files").insert([{
+    project_id: projectId,
+    name: file.name,
+    url: publicUrl,
+    type: file.type
+  }]).select().single();
+
+  if (dbError) {
+    alert(`Database save failed: ${dbError.message}`);
+  } else if (data) {
+    setFiles([data, ...files]);
+  }
+  
+  setIsUploading(false);
+};
 
   const deleteFile = async (id: string) => {
     await supabase.from("project_files").delete().eq("id", id);
