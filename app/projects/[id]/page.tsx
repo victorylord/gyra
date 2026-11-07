@@ -67,11 +67,10 @@ export default function ProjectWorkspace() {
     setLoading(false);
   };
 
-  // 🚨 FIX: Create a dynamic input to bypass modal rendering issues
   const triggerFileUpload = () => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".txt,.md,.csv,.json,.js,.ts,.py"; // Add .pdf here later if you install a parser
+    input.accept = ".txt,.md,.csv,.json,.js,.ts,.py"; 
     
     input.onchange = async (e: any) => {
       const file = e.target.files?.[0];
@@ -118,36 +117,59 @@ export default function ProjectWorkspace() {
     await supabase.from("projects").update({ is_public: newVal }).eq("id", projectId);
   };
 
+  // 🚨 FIXED: handleInvite with error handling and finally block
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !inviteEmail.includes("@")) return;
+    if (!inviteEmail.trim() || !inviteEmail.includes("@")) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+    
     setIsInviting(true);
 
-    const { data } = await supabase.from("project_access").insert([{
-      project_id: projectId,
-      email: inviteEmail,
-      role: "viewer"
-    }]).select().single();
+    try {
+      // 1. Save to database
+      const { data, error } = await supabase.from("project_access").insert([{
+        project_id: projectId,
+        email: inviteEmail,
+        role: "viewer"
+      }]).select().single();
 
-    if (data) {
-      setInvitedUsers([...invitedUsers, data]);
-      
-      try {
-        await fetch("/api/send-invite", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            email: inviteEmail, 
-            projectName: project.name, 
-            projectId: projectId 
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to send email", err);
+      if (error) {
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      // 2. Update UI immediately
+      if (data) {
+        setInvitedUsers((prev) => [...prev, data]);
+      }
+
+      // 3. Trigger email API
+      const emailRes = await fetch("/api/send-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          email: inviteEmail, 
+          projectName: project.name, 
+          projectId: projectId 
+        }),
+      });
+
+      const emailData = await emailRes.json();
+
+      if (!emailRes.ok) {
+        alert(`Invite saved, but email failed to send: ${emailData.error || "Unknown error"}`);
+      } else {
+        alert(`Invite sent successfully to ${inviteEmail}!`);
       }
 
       setInviteEmail("");
+
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "An unexpected error occurred.");
+    } finally {
+      setIsInviting(false);
     }
-    setIsInviting(false);
   };
 
   const updateUserRole = async (id: string, newRole: string) => {
