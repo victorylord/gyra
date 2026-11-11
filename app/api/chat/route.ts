@@ -158,31 +158,79 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
                                  lowercaseMsg.includes("image") || 
                                  lowercaseMsg.includes("photo") || 
                                  lowercaseMsg.includes("generate a") ||
+                                 lowercaseMsg.includes("change") ||
+                                 lowercaseMsg.includes("edit") ||
                                  lowercaseMsg.includes("draw");
 
           if (isImageRequest) {
-            controller.enqueue(encodeEvent({ type: "status", agent: "Imagine", status: "Drawing your image..." }));
+            controller.enqueue(encodeEvent({ type: "status", agent: "Imagine", status: "Analyzing your image..." }));
             
             if (isSuperGyra(subscription)) {
               try {
-                controller.enqueue(encodeEvent({ type: "content", text: "\n\n🎨 *Generating your image...*\n\n" }));
-                
+                // Check if user uploaded an image
                 let latestImageBase64 = "";
                 for (let i = messages.length - 1; i >= 0; i--) {
                   if (messages[i].imageBase64) { latestImageBase64 = messages[i].imageBase64; break; }
                 }
 
+                let finalImagePrompt = lastUserMessage;
+
+                // 🚨 IF THERE IS AN IMAGE, WE DO VISION ANALYSIS FIRST 🚨
+                if (latestImageBase64) {
+                  controller.enqueue(encodeEvent({ type: "content", text: "\n\n🔍 *Analyzing image context...*\n\n" }));
+                  
+                  // Use Groq Vision to analyze the image
+                  const visionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${process.env.GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                      model: "llama-3.2-11b-vision-preview",
+                      messages: [
+                        {
+                          role: "user",
+                          content: [
+                            { type: "text", text: "Analyze this image in detail. Describe the layout, colors, text, and specific elements. Be highly specific." },
+                            { type: "image_url", image_url: { url: latestImageBase64 } }
+                          ]
+                        }
+                      ],
+                      max_tokens: 300,
+                    })
+                  });
+
+                  const visionData = await visionResponse.json();
+                  const imageAnalysis = visionData.choices?.[0]?.message?.content || "A standard image.";
+
+                  controller.enqueue(encodeEvent({ type: "content", text: "✅ *Context understood. Generating edit...*\n\n" }));
+                  controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Applying modifications..." }));
+
+                  // Combine the Master Prompt + Vision Analysis + User Request
+                  finalImagePrompt = `You are an expert visual editor. 
+Image Analysis: ${imageAnalysis}
+User Request: ${lastUserMessage}
+Task: Edit the image based on the user request while keeping the exact same style, font, and layout for untouched areas.`;
+                } else {
+                   controller.enqueue(encodeEvent({ type: "content", text: "\n\n🎨 *Generating your image...*\n\n" }));
+                }
+
                 const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
                 const inputData: any = { 
-                  prompt: lastUserMessage, 
+                  prompt: finalImagePrompt, 
                   num_inference_steps: 28, 
                   guidance_scale: 3.5, 
                   num_images: 1,
                   enable_safety_checker: false 
                 };
                 
-                if (latestImageBase64) inputData.image_url = latestImageBase64;
-                else inputData.image_size = "square_hd";
+                if (latestImageBase64) {
+                  inputData.image_url = latestImageBase64;
+                  inputData.strength = 0.85; // Higher strength means it changes more (0.0 - 1.0)
+                } else {
+                  inputData.image_size = "square_hd";
+                }
 
                 const falResult: any = await fal.subscribe(falModel, { input: inputData, logs: false });
                 
@@ -193,10 +241,10 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
                 }
               } catch (err) {
                 console.error(err);
-                controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image generation failed. The prompt might violate safety guidelines." }));
+                controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image generation failed. The prompt or image might violate safety guidelines." }));
               }
             } else {
-              controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra exclusive feature. \n\n[Upgrade here](/upgrade)` }));
+              controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation and editing are SuperGyra exclusive features. \n\n[Upgrade here](/upgrade)` }));
             }
             
             const totalTimeSecs = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -252,7 +300,6 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
           // PHASE 1: ATLAS (Research)
           let context = "";
           
-          // 🚨 FIX: Atlas now runs if Search is ON, OR if it's a Code Request
           if (search || isCodeRequest) {
             controller.enqueue(encodeEvent({ type: "status", agent: "Atlas", status: "Researching documentation and scraping the web..." }));
             const searchResult = await atlasInternalSearch(lastUserMessage);
@@ -266,7 +313,6 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
                 sources: searchResult.sources
               }));
             } else {
-               // If it fails to scrape, still show Atlas so the user knows it ran
                controller.enqueue(encodeEvent({ 
                 type: "status", 
                 agent: "Atlas", 

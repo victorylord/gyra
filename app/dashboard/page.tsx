@@ -684,7 +684,12 @@ function DashboardContent() {
     if (!textToSend.trim() && !attachment) return;
     if (attachment?.status === "nsfw") return;
 
-    const currentInput = textToSend.trim() || (attachment ? "Analyze this" : "");
+    // 🚨 FIX: Append a hidden trigger if they attached an image
+    let currentInput = textToSend.trim() || (attachment ? "Analyze this" : "");
+    if (attachment && attachment.type === "image") {
+      currentInput += " [generate/change image]"; 
+    }
+
     const imageBase64 =
       attachment && attachment.type === "image" ? attachment.base64 : undefined;
     const fileBase64 =
@@ -1460,14 +1465,22 @@ function DashboardContent() {
    {msg.content ? <MessageContent content={msg.content} /> : (loading && !msg.isFileReading && <span className="inline-block w-2.5 h-4 bg-zinc-400 animate-pulse rounded-sm"></span>)}
 </div>
 
+                      {/* 🚨 GENERATED IMAGE UI 🚨 */}
                       {msg.generatedImage && (
-                        <div className="mt-4 border border-zinc-800 rounded-2xl overflow-hidden w-full max-w-md animate-in fade-in zoom-in-95 duration-500 shadow-xl">
-                          <div className="bg-[#1e1e1e] px-4 py-3 border-b border-zinc-800 flex items-center gap-2">
-                             <ImageIcon className="w-5 h-5 text-zinc-300" />
-                             <span className="text-sm font-medium text-white">Imagine</span>
+                        <div className="mt-4 border border-zinc-800 rounded-2xl overflow-hidden w-full max-w-md animate-in fade-in zoom-in-95 duration-500 shadow-xl bg-[#0d0d0d]">
+                          <div className="bg-[#141414] px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+                             <div className="flex items-center gap-2">
+                               <ImageIcon className="w-5 h-5 text-zinc-300" />
+                               <span className="text-sm font-medium text-white">Imagine</span>
+                             </div>
+                             <button className="text-zinc-400 hover:text-white">
+                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                             </button>
                           </div>
+                          
                           <img src={msg.generatedImage} alt="Generated" className="w-full object-cover" />
-                          <div className="bg-[#1e1e1e] p-3 flex items-center justify-between border-t border-zinc-800">
+                          
+                          <div className="bg-[#141414] p-3 flex items-center justify-between border-t border-zinc-800">
                             <button onClick={() => {
                                 fetch(msg.generatedImage)
                                   .then(res => res.blob())
@@ -1475,24 +1488,24 @@ function DashboardContent() {
                                     const url = window.URL.createObjectURL(blob);
                                     const a = document.createElement('a');
                                     a.href = url;
-                                    a.download = `gyra-${Date.now()}.jpg`;
+                                    a.download = `gyra-edit-${Date.now()}.jpg`;
                                     document.body.appendChild(a);
                                     a.click();
                                     a.remove();
                                     window.URL.revokeObjectURL(url);
                                   })
-                                  .catch(err => alert("Download failed. Try long-pressing the image to save."));
-                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors bg-zinc-800 px-3 py-1.5 rounded-lg">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                               Download
                             </button>
+                            
                             <button onClick={() => {
                                 if (navigator.share) {
                                     navigator.share({ url: msg.generatedImage });
                                 } else {
-                                    alert("Sharing is not supported on this browser.");
+                                    alert("Sharing is not supported.");
                                 }
-                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors">
+                            }} className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors bg-zinc-800 px-3 py-1.5 rounded-lg">
                               <Share2 className="w-4 h-4" />
                               Share
                             </button>
