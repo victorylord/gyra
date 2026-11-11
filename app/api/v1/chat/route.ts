@@ -27,12 +27,13 @@ interface ChatMessage {
 interface ChatRequestBody {
   messages?: unknown;
   voice?: unknown;
+  stream?: boolean;
 }
 
 // ---------- Config ----------
 const MAX_MESSAGES = 50;
 const MAX_TOTAL_CHARS = 32_000;
-const PROVIDER_TIMEOUT_MS = 15_000;
+const PROVIDER_TIMEOUT_MS = 30_000;
 const IP_RATE_LIMIT = 60;          // per minute
 const KEY_RATE_LIMIT = 100;        // per minute
 
@@ -123,7 +124,7 @@ function buildResponseBody(
       voice_name: "Ara",
       speak_text: aiReply,
       instructions:
-        "Use your platform's text-to-speech (Web Speech API on web, AVSpeechSynthesizer on iOS, TextToSpeech on Android) to speak `speak_text` aloud.",
+        "Use your platform's text-to-speech to speak `speak_text` aloud.",
     };
   }
 
@@ -158,37 +159,6 @@ async function callHuggingFace(messages: ChatMessage[]): Promise<string | null> 
     return data?.choices?.[0]?.message?.content ?? null;
   } catch (e) {
     console.error("huggingface error:", e);
-    return null;
-  }
-}
-
-async function callGroq(messages: ChatMessage[]): Promise<string | null> {
-  if (!process.env.GROQ_API_KEY) return null;
-  try {
-    const res = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages,
-          temperature: 0.7,
-        }),
-        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-      }
-    );
-    if (!res.ok) {
-      console.error("groq non-OK:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.error("groq error:", e);
     return null;
   }
 }
@@ -291,11 +261,7 @@ export async function POST(req: Request) {
     try {
       body = (await req.json()) as ChatRequestBody;
     } catch {
-      return errorResponse(
-        "invalid_json",
-        "Request body must be valid JSON.",
-        400
-      );
+      return errorResponse("invalid_json", "Request body must be valid JSON.", 400);
     }
 
     const messages = validateMessages(body.messages);
@@ -315,7 +281,6 @@ export async function POST(req: Request) {
       creditsUsd: 0,
     };
 
-    // Mobile + web dashboard send the Supabase token in this header
     const userToken = req.headers.get("x-gyra-user-token") || "";
     if (userToken) {
       try {
@@ -333,15 +298,14 @@ export async function POST(req: Request) {
     if (!isSuperGyra(subscription) && userMessageCount > FREE_LIMIT) {
       return errorResponse(
         "chat_limit_reached",
-        `You've reached the free limit of ${FREE_LIMIT} messages in this conversation. Upgrade to SuperGyra for unlimited chat.`,
+        `You've reached the free limit of ${FREE_LIMIT} messages. Upgrade to SuperGyra for unlimited chat.`,
         402,
-        {
-          "X-Upgrade-URL": "https://gyra.ng/upgrade",
-        }
+        { "X-Upgrade-URL": "https://gyra.ng/upgrade" }
       );
     }
 
     const voiceEnabled = body.voice === true;
+    const isStreaming = body.stream === true;
 
     // 6. Jailbreak detection
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
@@ -367,16 +331,57 @@ export async function POST(req: Request) {
 
     const fullMessages: ChatMessage[] = [systemPrompt, ...messages];
 
+    // 🚨 FIXED GROQ MODEL & STREAMING 🚨
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-oss-120b",
+        messages: fullMessages,
+        temperature: 0.7,
+        stream: isStreaming,
+      }),
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    });
+
+    if (groqRes.ok) {
+      // Update usage (atomic increment via RPC).
+      supabaseAdmin.rpc("increment_api_key_usage", { key_id: keyData.id }).then(({error}) => {
+        if (error) {
+            supabaseAdmin.from("api_keys").update({ last_used: new Date().toISOString(), request_count: (keyData.request_count || 0) + 1 }).eq("id", keyData.id);
+        }
+      });
+
+      // If client requested streaming, proxy the stream
+      if (isStreaming && groqRes.body) {
+        return new Response(groqRes.body, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        });
+      }
+
+      // Otherwise, parse standard JSON
+      const data = await groqRes.json();
+      const aiReply = data?.choices?.[0]?.message?.content;
+      if (aiReply) {
+        return Response.json(buildResponseBody(aiReply, "groq", voiceEnabled));
+      }
+    }
+
+    // --- FALLBACKS ---
+    console.warn("Groq failed or empty, trying fallbacks...");
+    
     let aiReply: string | null = null;
     let provider = "none";
 
     aiReply = await callHuggingFace(fullMessages);
     if (aiReply) provider = "huggingface";
-
-    if (!aiReply) {
-      aiReply = await callGroq(fullMessages);
-      if (aiReply) provider = "groq";
-    }
 
     if (!aiReply) {
       aiReply = await callXai(fullMessages);
@@ -386,39 +391,16 @@ export async function POST(req: Request) {
     if (!aiReply) {
       return errorResponse(
         "ai_unavailable",
-        "All AI providers are temporarily unavailable.",
+        "All AI providers are temporarily unavailable. Please check your Groq API key and Vercel logs.",
         503
       );
     }
 
-    // 8. Update usage (atomic increment via RPC).
-    const { error: rpcError } = await supabaseAdmin.rpc(
-      "increment_api_key_usage",
-      { key_id: keyData.id }
-    );
-
-    if (rpcError) {
-      console.warn(
-        "increment_api_key_usage RPC failed, falling back to non-atomic update:",
-        rpcError.message
-      );
-      await supabaseAdmin
-        .from("api_keys")
-        .update({
-          last_used: new Date().toISOString(),
-          request_count: (keyData.request_count || 0) + 1,
-        })
-        .eq("id", keyData.id);
-    }
-
-    // 9. Response
+    // Return fallback response (non-streamed)
     return Response.json(buildResponseBody(aiReply, provider, voiceEnabled));
+
   } catch (err) {
     console.error("chat route error:", err);
-    return errorResponse(
-      "internal_error",
-      "An unexpected error occurred.",
-      500
-    );
+    return errorResponse("internal_error", "An unexpected error occurred.", 500);
   }
 }
