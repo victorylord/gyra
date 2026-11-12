@@ -14,7 +14,8 @@ import {
   Paperclip, Zap, Search, Image as ImageIcon, 
   FileText, Mic, MapPin, MoreHorizontal, Sparkles,
   Volume2, ThumbsUp, ThumbsDown, Copy, RotateCcw, Share2,
-  Briefcase, Code, Heart, Home, Globe, Camera
+  Briefcase, Code, Heart, Home, Globe, Camera,
+  X // 🚨 ADDED THIS FOR THE FULLSCREEN MODAL
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
@@ -188,6 +189,9 @@ function DashboardContent() {
   // File Reading States
   const [showFileModal, setShowFileModal] = useState(false);
   const [fileProcessingState, setFileProcessingState] = useState<"idle" | "reading" | "done">("idle");
+
+  // 🚨 FULL SCREEN IMAGE VIEWER STATE
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<any[]>([]);
@@ -519,7 +523,8 @@ function DashboardContent() {
       isNewChat = true;
     }
 
-    const userMessage: any = { role: "user", content: text.trim() };
+    const displayText = text.replace("[generate/change image]", "").trim();
+    const userMessage: any = { role: "user", content: displayText };
     if (imageBase64) userMessage.imageBase64 = imageBase64;
     if (fileBase64) userMessage.fileBase64 = fileBase64;
 
@@ -529,7 +534,7 @@ function DashboardContent() {
 
     await supabase
       .from("messages")
-      .insert([{ chat_id: chatId, role: "user", content: text.trim() }]);
+      .insert([{ chat_id: chatId, role: "user", content: displayText }]);
 
     if (isNewChat) {
       fetch("/api/title", {
@@ -811,6 +816,72 @@ function DashboardContent() {
   return (
     <main className="h-screen bg-black text-white flex relative overflow-hidden">
       
+      {/* 🚨 FULL SCREEN IMAGE VIEWER 🚨 */}
+      {fullScreenImage && (
+        <div className="fixed inset-0 z-[200] bg-black flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          {/* Top Bar */}
+          <div className="flex justify-between items-center p-4 absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent">
+            <button 
+              onClick={() => setFullScreenImage(null)} 
+              className="w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-zinc-800 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Image Container */}
+          <div className="flex-1 flex items-center justify-center p-4 pb-24">
+            <img 
+              src={fullScreenImage} 
+              alt="Full Screen" 
+              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" 
+            />
+          </div>
+
+          {/* Bottom Action Bar */}
+          <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 to-transparent flex justify-center gap-12">
+            <button 
+              onClick={async () => {
+                try {
+                  const res = await fetch(fullScreenImage);
+                  const blob = await res.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `gyra-${Date.now()}.jpg`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch (e) {
+                  alert("Download failed. Try long-pressing the image.");
+                }
+              }}
+              className="flex items-center gap-2 text-white font-medium hover:text-zinc-300 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Download
+            </button>
+
+            <button 
+              onClick={async () => {
+                if (navigator.share) {
+                  try {
+                    await navigator.share({ url: fullScreenImage });
+                  } catch (e) {}
+                } else {
+                  alert("Sharing is not supported on this browser.");
+                }
+              }}
+              className="flex items-center gap-2 text-white font-medium hover:text-zinc-300 transition-colors"
+            >
+              <Share2 className="w-6 h-6" />
+              Share
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 🚨 CINEMATIC FILE READING POPUP 🚨 */}
       {showFileModal && (
         <div className="absolute inset-0 bg-black/80 z-[100] flex items-center justify-center p-6 backdrop-blur-md">
@@ -1385,7 +1456,7 @@ function DashboardContent() {
                 >
                   {msg.role === "user" && (
                     <div className="bg-[#2f2f2f] text-white px-5 py-3 rounded-3xl max-w-[85%] text-[15px] leading-relaxed">
-                      {msg.imageBase64 && <img src={msg.imageBase64} className="w-48 h-auto rounded-xl mb-2 object-cover" />}
+                      {msg.imageBase64 && <img src={msg.imageBase64} className="w-48 h-auto rounded-xl mb-2 object-cover cursor-pointer" onClick={() => setFullScreenImage(msg.imageBase64)} />}
                       {msg.content}
                     </div>
                   )}
@@ -1478,7 +1549,12 @@ function DashboardContent() {
                              </button>
                           </div>
                           
-                          <img src={msg.generatedImage} alt="Generated" className="w-full object-cover" />
+                          <img 
+                            src={msg.generatedImage} 
+                            alt="Generated" 
+                            onClick={() => setFullScreenImage(msg.generatedImage)}
+                            className="w-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                          />
                           
                           <div className="bg-[#141414] p-3 flex items-center justify-between border-t border-zinc-800">
                             <button onClick={() => {
