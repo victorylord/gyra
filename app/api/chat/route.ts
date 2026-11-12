@@ -154,6 +154,7 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
           const startTime = Date.now();
 
           // 🚨 ROUTER 1: IS THIS AN IMAGE REQUEST? 🚨
+// 🚨 ROUTER 1: IS THIS AN IMAGE REQUEST? 🚨
 const isImageRequest = lowercaseMsg.includes("image") || 
                        lowercaseMsg.includes("picture") ||
                        lowercaseMsg.includes("edit") ||
@@ -169,27 +170,39 @@ if (isImageRequest) {
         if (messages[i].imageBase64) { latestImageBase64 = messages[i].imageBase64; break; }
       }
 
-      // 🚨 CLEAN THE PROMPT: Remove the trigger text so it doesn't confuse the AI
       const cleanPrompt = lastUserMessage.replace("[generate/change image]", "").trim();
-
-      const falModel = latestImageBase64 ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev";
-      const inputData: any = { 
-        prompt: cleanPrompt, 
-        num_inference_steps: 28, 
-        guidance_scale: 3.5, 
-        num_images: 1,
-        enable_safety_checker: false 
-      };
       
-      if (latestImageBase64) {
-        inputData.image_url = latestImageBase64;
-        // 🚨 LOWER STRENGTH: This tells Flux to ONLY change what the user asked for, keeping the rest intact
-        inputData.strength = 0.35; 
-      } else {
-        inputData.image_size = "square_hd";
-      }
+      // 🚨 PROMPT ENGINEERING FOR FLUX
+      const finalImagePrompt = `Edit this image. ${cleanPrompt}. Maintain the exact original style, font, and layout. Do not add extra text, just make the requested change.`;
 
-      const falResult: any = await fal.subscribe(falModel, { input: inputData, logs: false });
+      controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Applying modifications..." }));
+
+      let falResult: any;
+
+      if (latestImageBase64) {
+        // 🚨 USE FLUX PRO ULTRA for image-to-image editing
+        // This model is vastly superior at keeping the original layout intact while editing.
+        falResult = await fal.subscribe("fal-ai/flux-pro/v1.1-ultra", {
+          input: {
+            prompt: finalImagePrompt,
+            image_url: latestImageBase64,
+            num_images: 1, 
+          },
+          logs: false
+        });
+      } else {
+        // Standard text-to-image generation
+        falResult = await fal.subscribe("fal-ai/flux/dev", {
+          input: {
+            prompt: cleanPrompt,
+            image_size: "square_hd",
+            num_inference_steps: 28,
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false
+        });
+      }
       
       if (falResult.data?.images?.length > 0) {
         controller.enqueue(encodeEvent({ type: "image", url: falResult.data.images[0].url }));
@@ -198,7 +211,7 @@ if (isImageRequest) {
       }
     } catch (err) {
       console.error(err);
-      controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image generation failed." }));
+      controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image editing failed. The prompt might be too complex." }));
     }
   } else {
     controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra feature.` }));
