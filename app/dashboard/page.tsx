@@ -72,6 +72,7 @@ function MessageContent({ content }: { content: string }) {
                       {copied ? "✓ Copied" : "Copy"}
                     </button>
                   </div>
+                  {/* FIX: Force the SyntaxHighlighter to scroll internally instead of expanding the page */}
                   <div className="w-full overflow-x-auto">
                     <SyntaxHighlighter
                       style={vscDarkPlus as any}
@@ -86,8 +87,9 @@ function MessageContent({ content }: { content: string }) {
                 </div>
               );
             }
+            // 🚨 FIX: Inline code must wrap properly
             return (
-              <code className="bg-zinc-800 text-zinc-200 px-1.5 py-0.5 rounded text-sm font-mono whitespace-pre-wrap break-all" {...props}>
+              <code className="bg-zinc-800 text-zinc-200 px-1.5 py-0.5 rounded text-sm font-mono break-all whitespace-pre-wrap" {...props}>
                 {children}
               </code>
             );
@@ -113,6 +115,7 @@ function MessageContent({ content }: { content: string }) {
           h3({ children }) {
             return <h3 className="text-lg font-bold text-white mt-6 mb-3 flex items-center gap-2 break-words">{children}</h3>;
           },
+          // 🚨 FIX: Paragraphs must break words
           p({ children }) {
             return <p className="mb-4 break-words">{children}</p>;
           },
@@ -126,7 +129,7 @@ function MessageContent({ content }: { content: string }) {
             return <li className="break-words">{children}</li>;
           },
           strong({ children }) {
-            return <strong className="font-semibold text-white">{children}</strong>;
+            return <strong className="font-semibold text-white break-words">{children}</strong>;
           }
         }}
       >
@@ -1435,7 +1438,7 @@ function DashboardContent() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-3xl mx-auto px-4 py-4">
           {messages.length === 0 ? (
   <div className="h-full flex flex-col items-center justify-center pb-20">
     <div className="relative mb-6">
