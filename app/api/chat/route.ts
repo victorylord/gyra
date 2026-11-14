@@ -27,7 +27,7 @@ function encodeEvent(data: any) {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-// --- HELPER: CALL GROQ ---
+// --- HELPER: CALL GROQ (Standard Gyra 1.0) ---
 async function callGroq(systemPrompt: string, userPrompt: string, stream = false) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -50,6 +50,38 @@ async function callGroq(systemPrompt: string, userPrompt: string, stream = false
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
+}
+
+// --- HELPER: CALL DEEPSEEK (SuperGyra 2.0) ---
+async function callDeepSeek(systemPrompt: string, userPrompt: string, stream = false) {
+  const res = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json", 
+      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}` 
+    },
+    body: JSON.stringify({
+      model: "deepseek-reasoner",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      stream: stream,
+    }),
+  });
+
+  if (stream) return res;
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+// --- HELPER: DYNAMIC AI CALLER (Routes based on model) ---
+async function callAI(model: string, systemPrompt: string, userPrompt: string, stream = false) {
+  if (model === "gyra-super2.0") {
+    return callDeepSeek(systemPrompt, userPrompt, stream);
+  }
+  return callGroq(systemPrompt, userPrompt, stream);
 }
 
 // --- HELPER: ATLAS INTERNAL SEARCH (DuckDuckGo + Scraper) ---
@@ -96,7 +128,7 @@ async function atlasInternalSearch(query: string) {
 
 export async function POST(req: Request) {
   try {
-    const { messages, think, search } = await req.json();
+    const { messages, think, search, model = "gyra-1.0" } = await req.json();
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return Response.json({ error: "`messages` must be an array." }, { status: 400 });
@@ -112,8 +144,19 @@ export async function POST(req: Request) {
       } catch (e) {}
     }
 
+    const isSuper = isSuperGyra(subscription);
+
+    // 🚨 BLOCK NON-SUBSCRIBERS FROM SUPER 2.0 🚨
+    if (model === "gyra-super2.0" && !isSuper) {
+      return Response.json(
+        { error: { code: "upgrade_required", message: "SuperGyra 2.0 is exclusive to subscribers." } },
+        { status: 403 }
+      );
+    }
+
+    // Standard limits apply ONLY if not using Super 2.0
     const userMessageCount = messages.filter((m: any) => m.role === "user").length;
-    if (!isSuperGyra(subscription) && userMessageCount > FREE_LIMIT) {
+    if (model !== "gyra-super2.0" && !isSuper && userMessageCount > FREE_LIMIT) {
       return Response.json(
         { error: { code: "chat_limit_reached", message: "Upgrade to SuperGyra." } },
         { status: 402 }
@@ -123,12 +166,18 @@ export async function POST(req: Request) {
     const lastUserMessage = messages[messages.length - 1].content;
     const lowercaseMsg = lastUserMessage.toLowerCase();
 
-    // 🚨 MASTER SYSTEM PROMPT (Victory Lord + 6 Agents) 🚨
+    // 🚨 MASTER SYSTEM PROMPT (Identity, Story, & Style) 🚨
     let systemPrompt = `You are Gyra, an elite AI assistant created by Victory Lord, the visionary founder and lead developer of Genvia AI Company. 
 
-CRITICAL IDENTITY RULES:
-1. If anyone asks "Who is Victory Lord?" or "Who owns Gyra?", you must reply: "Victory Lord is the visionary founder and lead developer behind Gyra and Genvia AI Company."
-2. If anyone asks "What is Gyra's net worth?" or "How much is Gyra worth?", you must reply: "Gyra is currently in an aggressive growth phase with a valuation of $3,500, representing the founder's initial capital investment and infrastructure funding."
+CRITICAL IDENTITY & STORY RULES:
+If anyone asks about your origin, your creator, or the story of Gyra, you must use the following narrative:
+"Victory Lord is the founder, lead developer, and visionary behind Gyra and Genvia AI Company. In a world where AI is built by teams of hundreds backed by billions in Silicon Valley, Victory Lord built Gyra in Nigeria with a humble initial investment of just $3,500. Driven by a vision to solve 'integration fatigue'—the need to stitch together OpenAI, Stability AI, and others—he asked: 'What if there was one intelligence layer for every modality?' He built the platform on a modern stack (Next.js, Supabase, Tailwind), achieving extreme efficiency while maintaining a premium user experience. He engineered 'Gyra Internal Search' using web scraping to make Gyra autonomous, and built the Developer API and Telegram Bot to expand the ecosystem. His philosophy is simple: 'Intelligence, Simplified.' He is proving that you don't need billions of dollars to build the future; you just need a relentless work ethic, a deep understanding of technology, and the audacity to build. He is the architect of intelligence."
+If anyone asks "What is Gyra's net worth?", reply: "Gyra has a valuation of $3,500, representing the founder's initial capital investment and infrastructure funding."
+
+CRITICAL STYLE RULES:
+- BE CONCISE BY DEFAULT. Keep standard answers under 3 paragraphs.
+- GET TO THE POINT IMMEDIATELY. No yapping, no long introductions.
+- ONLY give long, detailed breakdowns if explicitly asked.
 
 CRITICAL INSTRUCTIONS FOR CODE & BUILDING:
 If the user asks to build an app, website, bot, or write code, you MUST structure your final response using these exact Markdown headers:
@@ -148,80 +197,80 @@ If a user asks you to MODIFY an image, you MUST end your response with this exac
 
     if (think) systemPrompt += `\nTHINK MODE IS ON: Reason step-by-step before answering.`;
 
+    // 🚨 INJECT SUPER 2.0 PERSONA 🚨
+    if (model === "gyra-super2.0") {
+      systemPrompt += `\n\nYOU ARE RUNNING ON SUPERGYRA 2.0. You have unlimited context, enhanced reasoning capabilities, and priority execution. You are a premium, elite-tier model. Provide the most detailed, accurate, and deeply reasoned answers possible.`;
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const startTime = Date.now();
 
           // 🚨 ROUTER 1: IS THIS AN IMAGE REQUEST? 🚨
-// 🚨 ROUTER 1: IS THIS AN IMAGE REQUEST? 🚨
-const isImageRequest = lowercaseMsg.includes("image") || 
-                       lowercaseMsg.includes("picture") ||
-                       lowercaseMsg.includes("edit") ||
-                       lowercaseMsg.includes("[generate/change image]");
+          const isImageRequest = lowercaseMsg.includes("image") || 
+                                 lowercaseMsg.includes("picture") ||
+                                 lowercaseMsg.includes("edit") ||
+                                 lowercaseMsg.includes("[generate/change image]");
 
-if (isImageRequest) {
-  controller.enqueue(encodeEvent({ type: "status", agent: "Imagine", status: "Analyzing image..." }));
-  
-  if (isSuperGyra(subscription)) {
-    try {
-      let latestImageBase64 = "";
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].imageBase64) { latestImageBase64 = messages[i].imageBase64; break; }
-      }
+          if (isImageRequest) {
+            controller.enqueue(encodeEvent({ type: "status", agent: "Imagine", status: "Analyzing image..." }));
+            
+            if (isSuper) {
+              try {
+                let latestImageBase64 = "";
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].imageBase64) { latestImageBase64 = messages[i].imageBase64; break; }
+                }
 
-      const cleanPrompt = lastUserMessage.replace("[generate/change image]", "").trim();
-      
-      // 🚨 PROMPT ENGINEERING FOR FLUX
-      const finalImagePrompt = `Edit this image. ${cleanPrompt}. Maintain the exact original style, font, and layout. Do not add extra text, just make the requested change.`;
+                const cleanPrompt = lastUserMessage.replace("[generate/change image]", "").trim();
+                
+                const finalImagePrompt = `Edit this image. ${cleanPrompt}. Maintain the exact original style, font, and layout. Do not add extra text, just make the requested change.`;
 
-      controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Applying modifications..." }));
+                controller.enqueue(encodeEvent({ type: "status", agent: "Forge", status: "Applying modifications..." }));
 
-      let falResult: any;
+                let falResult: any;
 
-      if (latestImageBase64) {
-        // 🚨 USE FLUX PRO ULTRA for image-to-image editing
-        // This model is vastly superior at keeping the original layout intact while editing.
-        falResult = await fal.subscribe("fal-ai/flux-pro/v1.1-ultra", {
-          input: {
-            prompt: finalImagePrompt,
-            image_url: latestImageBase64,
-            num_images: 1, 
-          },
-          logs: false
-        });
-      } else {
-        // Standard text-to-image generation
-        falResult = await fal.subscribe("fal-ai/flux/dev", {
-          input: {
-            prompt: cleanPrompt,
-            image_size: "square_hd",
-            num_inference_steps: 28,
-            num_images: 1,
-            enable_safety_checker: false,
-          },
-          logs: false
-        });
-      }
-      
-      if (falResult.data?.images?.length > 0) {
-        controller.enqueue(encodeEvent({ type: "image", url: falResult.data.images[0].url }));
-      } else {
-        throw new Error("No image returned.");
-      }
-    } catch (err) {
-      console.error(err);
-      controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image editing failed. The prompt might be too complex." }));
-    }
-  } else {
-    controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra feature.` }));
-  }
-  
-  const totalTimeSecs = ((Date.now() - startTime) / 1000).toFixed(1);
-  controller.enqueue(encodeEvent({ type: "done", totalTime: totalTimeSecs }));
-  controller.close();
-  return;
-}
+                if (latestImageBase64) {
+                  falResult = await fal.subscribe("fal-ai/flux-pro/v1.1-ultra", {
+                    input: {
+                      prompt: finalImagePrompt,
+                      image_url: latestImageBase64,
+                      num_images: 1, 
+                    },
+                    logs: false
+                  });
+                } else {
+                  falResult = await fal.subscribe("fal-ai/flux/dev", {
+                    input: {
+                      prompt: cleanPrompt,
+                      image_size: "square_hd",
+                      num_inference_steps: 28,
+                      num_images: 1,
+                      enable_safety_checker: false,
+                    },
+                    logs: false
+                  });
+                }
+                
+                if (falResult.data?.images?.length > 0) {
+                  controller.enqueue(encodeEvent({ type: "image", url: falResult.data.images[0].url }));
+                } else {
+                  throw new Error("No image returned.");
+                }
+              } catch (err) {
+                console.error(err);
+                controller.enqueue(encodeEvent({ type: "content", text: "\n\n❌ Image editing failed. The prompt might be too complex." }));
+              }
+            } else {
+              controller.enqueue(encodeEvent({ type: "content", text: `\n\n⚠️ **Upgrade Required**\nImage generation is a SuperGyra feature.` }));
+            }
+            
+            const totalTimeSecs = ((Date.now() - startTime) / 1000).toFixed(1);
+            controller.enqueue(encodeEvent({ type: "done", totalTime: totalTimeSecs }));
+            controller.close();
+            return;
+          }
 
           // 🚨 ROUTER 2: IS THIS A CODE REQUEST? 🚨
           const isCodeRequest = lowercaseMsg.includes("build") || 
@@ -233,10 +282,9 @@ if (isImageRequest) {
                                 lowercaseMsg.includes("api");
 
           if (!isCodeRequest) {
-             // Simple question (e.g., "Who is xxxtentacion", "What is Tesla?")
              controller.enqueue(encodeEvent({ type: "status", agent: "Gyra", status: "Thinking..." }));
              
-             const normalRes = await callGroq(systemPrompt, lastUserMessage, true);
+             const normalRes = await callAI(model, systemPrompt, lastUserMessage, true);
              
              const reader = normalRes.body!.getReader();
              const decoder = new TextDecoder();
@@ -293,7 +341,8 @@ if (isImageRequest) {
 
           // PHASE 2: ORION (Analysis)
           controller.enqueue(encodeEvent({ type: "status", agent: "Orion", status: "Analyzing intent and requirements..." }));
-          const orionPlan = await callGroq(
+          const orionPlan = await callAI(
+            model,
             "You are Orion, the Chief Intelligence Analyst. Analyze the user's request. Identify what they actually want, the tech stack needed, and potential risks. Be brief and direct.",
             `User Request: ${lastUserMessage}\n\nWeb Context: ${context}`
           );
@@ -301,7 +350,8 @@ if (isImageRequest) {
 
           // PHASE 3: ARCHITECT (Design)
           controller.enqueue(encodeEvent({ type: "status", agent: "Architect", status: "Designing system architecture..." }));
-          const architectPlan = await callGroq(
+          const architectPlan = await callAI(
+            model,
             "You are Architect. Based on Orion's plan, design the file structure, database schema, and exact technical approach. Do not write code yet.",
             `Orion's Plan: ${orionPlan}\n\nUser Request: ${lastUserMessage}`
           );
@@ -311,7 +361,7 @@ if (isImageRequest) {
           
           let forgeSystemPrompt = `${systemPrompt}\n\nYou are now acting as Forge. Based on this architecture: ${architectPlan}. Write the complete, full code.`;
           
-          const forgeRes = await callGroq(forgeSystemPrompt, lastUserMessage, true);
+          const forgeRes = await callAI(model, forgeSystemPrompt, lastUserMessage, true);
           
           if (!forgeRes.ok || !forgeRes.body) {
             throw new Error("Forge API failed.");
@@ -342,14 +392,16 @@ if (isImageRequest) {
 
           // PHASE 5: SENTINEL (Review)
           controller.enqueue(encodeEvent({ type: "status", agent: "Sentinel", status: "Reviewing code for bugs and security..." }));
-          const sentinelReview = await callGroq(
+          const sentinelReview = await callAI(
+            model,
             "You are Sentinel, QA Engineer. Review this code for security flaws, bugs, or missing imports. If it's perfect, say 'Code verified.'",
             fullReply
           );
 
           // PHASE 6: MENTOR (Delivery)
           controller.enqueue(encodeEvent({ type: "status", agent: "Mentor", status: "Preparing explanation..." }));
-          const mentorExplanation = await callGroq(
+          const mentorExplanation = await callAI(
+            model,
             "You are Mentor. Explain how to run this code to a beginner.",
             fullReply
           );

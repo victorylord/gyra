@@ -347,13 +347,42 @@ function DashboardContent() {
             }
 
             if (parsed.type === "content") {
-              fullReply += parsed.text;
-              setMessages(prev => {
-                const next = [...prev];
-                next[next.length - 1].content = fullReply;
-                return next;
-              });
-            }
+  fullReply += parsed.text;
+  
+  // 🚨 SLOW DOWN STREAMING 🚨
+  // We split the incoming chunk into characters and reveal them with a tiny delay
+  const currentMsgIndex = messages.length - 1;
+  
+  // We use a local function to progressively update the UI
+  const revealTextSlowly = async (textToReveal: string) => {
+    // If the text is really long, don't slow it down too much or it takes forever
+    if (textToReveal.length > 200) {
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1].content = fullReply;
+        return next;
+      });
+      return;
+    }
+
+    let currentText = "";
+    for (let i = 0; i < textToReveal.length; i++) {
+      currentText += textToReveal[i];
+      
+      // Update the UI with the partial text
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1].content = fullReply.substring(0, fullReply.length - textToReveal.length) + currentText;
+        return next;
+      });
+
+      // The delay (20ms makes it look smooth and natural)
+      await new Promise(resolve => setTimeout(resolve, 20)); 
+    }
+  };
+
+  revealTextSlowly(parsed.text);
+}
 
             if (parsed.type === "done") {
               setMessages(prev => {
