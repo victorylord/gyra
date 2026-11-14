@@ -16,9 +16,16 @@ export default function DeleteAccount() {
 
     try {
       // 1. Create the request in the database
-      const { data, error } = await supabase.from("deletion_requests").insert([{ email }]).select().single();
+      const { data, error } = await supabase
+        .from("deletion_requests")
+        .insert([{ email }])
+        .select()
+        .single();
       
-      if (error) throw error;
+      if (error) {
+        // 🚨 THIS WILL SHOW THE EXACT DATABASE ERROR
+        throw new Error(`Database Error: ${error.message}`);
+      }
 
       // 2. Trigger the email API
       const res = await fetch("/api/delete-account/request", {
@@ -27,11 +34,16 @@ export default function DeleteAccount() {
         body: JSON.stringify({ email, token: data.token }),
       });
 
-      if (!res.ok) throw new Error("Failed to send email");
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(`Email Error: ${errorData.error || "Failed to send email"}`);
+      }
 
       setSuccess(true);
-    } catch (err) {
-      alert("Something went wrong. Please try again.");
+    } catch (err: any) {
+      console.error(err);
+      // 🚨 THIS WILL SHOW YOU EXACTLY WHAT IS WRONG
+      alert(err.message);
     } finally {
       setLoading(false);
     }
