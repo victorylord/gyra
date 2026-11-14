@@ -172,6 +172,7 @@ function DashboardContent() {
 
   const [thinkMode, setThinkMode] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("gyra-1.0");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
 
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -1425,16 +1426,37 @@ function DashboardContent() {
               </svg>
             </button>
             
-            <div className="hidden md:flex items-center gap-2 ml-2">
-              {project && (
-                <div className="w-6 h-6 rounded bg-zinc-800 flex items-center justify-center text-zinc-400">
-                  {ICON_MAP[project.icon] || <Folder className="w-4 h-4" />}
-                </div>
-              )}
-              <h1 className="text-lg font-bold truncate max-w-[200px]">
-                {project ? project.name : (chats.find(c => c.id === activeChatId)?.title || "Gyra")}
-              </h1>
-            </div>
+            <div className="flex items-center gap-3 ml-2">
+  {project && (
+    <div className="w-6 h-6 rounded bg-zinc-800 flex items-center justify-center text-zinc-400">
+      {ICON_MAP[project.icon] || <Folder className="w-4 h-4" />}
+    </div>
+  )}
+  
+  {/* 🚨 MODEL SELECTOR 🚨 */}
+  <div className="flex items-center gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-2 py-1">
+    <select 
+      value={selectedModel}
+      onChange={(e) => setSelectedModel(e.target.value)}
+      className="bg-transparent text-sm font-bold text-white outline-none cursor-pointer hover:text-zinc-300 transition-colors"
+    >
+      <option value="gyra-1.0" className="bg-black text-white">Gyra 1.0</option>
+      <option value="gyra-super2.0" className="bg-black text-blue-400 font-semibold">⚡ SuperGyra 2.0</option>
+    </select>
+    
+    {!isSuperGyra && selectedModel === "gyra-super2.0" && (
+      <span className="text-red-500 text-[10px] font-bold flex items-center gap-1">
+        <Zap className="w-3 h-3" /> LOCKED
+      </span>
+    )}
+  </div>
+  
+  <div className="h-4 w-px bg-zinc-800 mx-1"></div>
+  
+  <h1 className="text-sm font-medium text-zinc-400 truncate max-w-[150px]">
+    {project ? project.name : (chats.find(c => c.id === activeChatId)?.title || "New Chat")}
+  </h1>
+</div>
             
           </div>
           <div className="flex items-center gap-2">
