@@ -411,6 +411,13 @@ export function extractExports(content: string): string[] {
 /* Walking + reading                                                  */
 /* ------------------------------------------------------------------ */
 
+function joinPath(directory: string, name: string): string {
+  if (!name) return directory || "/";
+  if (name.startsWith("/")) return name;
+  const base = directory.endsWith("/") ? directory.slice(0, -1) : directory;
+  return `${base || ""}/${name}`;
+}
+
 async function walkProject(
   sandbox: Sandbox,
   root: string,
@@ -436,12 +443,12 @@ async function walkProject(
       if (entry.type === "dir") {
         if (IGNORED_DIRECTORIES.has(entry.name)) continue;
         if (entry.name.startsWith(".")) continue;
-        queue.push(entry.path || resolvePath(directory, entry.name));
+        queue.push(entry.path || joinPath(directory, entry.name));
         continue;
       }
 
       if (!isIndexableFile(entry.name)) continue;
-      paths.push(entry.path || resolvePath(directory, entry.name));
+      paths.push(entry.path || joinPath(directory, entry.name));
       if (paths.length >= maxFiles) break;
     }
   }
